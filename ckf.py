@@ -236,8 +236,7 @@ class BearingOnlyCKF:
 
 # 模拟运行
 def run_simulation(animate=True):
-    # 设置随机种子以保证可重复性
-    np.random.seed(42)
+    
 
     # 设置仿真参数
     dt = 1.0  # 时间步长 (秒)
