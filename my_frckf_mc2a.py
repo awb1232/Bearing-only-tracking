@@ -549,9 +549,9 @@ class Algorithms:
         forward_ckf_k = BearingOnlyCKF(x0, P0, Q, model.R, model.sample_time, model.sensor_trajectory)
 
         for i in range(1, k + 1):
-            forward_ckf_k.step(model.measurements[k], model.target_states[k])
-            estimation_states[k] = forward_ckf_k.x
-            estimation_covs[k] = forward_ckf_k.P
+            forward_ckf_k.step(model.measurements[i], model.target_states[i])
+            estimation_states[i] = forward_ckf_k.x
+            estimation_covs[i] = forward_ckf_k.P
 
         """从k回合运行逆向ckf直到初始回合，优化初值"""
 
@@ -578,18 +578,31 @@ class Algorithms:
         backward_covs[0] = backward_P0
 
         # 逆向滤波从索引1开始（对应原始序列的backward_start_step-1）
-        for k in range(1, k + 1):
-            backward_ckf_k.step(backward_measurements[k])
-            backward_states[k] = backward_ckf_k.x
-            backward_covs[k] = backward_ckf_k.P
+        for i in range(1, k + 1):
+            backward_ckf_k.step(backward_measurements[i])
+            backward_states[i] = backward_ckf_k.x
+            backward_covs[i] = backward_ckf_k.P
 
         # 逆向滤波优化后的初值是最后一步的状态
         optimized_initial_state = backward_states[-1]
         optimized_initial_covariance = backward_covs[-1]
 
+        """再正向优化回到k回合"""
+        forward_ckf_k2 = BearingOnlyCKF(optimized_initial_state,
+                                        optimized_initial_covariance
+                                        , Q, model.R, model.sample_time,
+                                        model.sensor_trajectory)
+
+        for i in range(1, k + 1):
+            forward_ckf_k2.step(model.measurements[i])
+            estimation_states[i] = forward_ckf_k2.x
+            estimation_covs[i] = forward_ckf_k2.P
+
+
         """接下来循环如下的操作：
            1.运行正向CKF到k+1回合
-           2.以1中的k+1回合的x和P为基础，反向运行n次逆向卡尔曼滤波，进行局部的初值优化"""
+           2.以1中的k+1回合的x和P为基础，反向运行n次逆向卡尔曼滤波，进行局部的初值优化
+           3.获得2中局部的优化初值后，再进行n次局部正向滤波，获得k+1回合的优化解，作为最终k+1回合的状态估计"""
 
         for i in range(k, model.steps, 1):
             # 运行正向CKF到k+1回合
@@ -858,7 +871,7 @@ if __name__ == '__main__':
     Runner.select_method('frckf')
     Runner.run_monte_carlo(number)
 
-    Runner.select_method('frffckf')
+    Runner.select_method('frffckf1')
     Runner.run_monte_carlo(number)
 
     Visulation = Visulation(Runner)
