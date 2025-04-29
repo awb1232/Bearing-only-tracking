@@ -364,7 +364,6 @@ class Algorithms:
             estimated_states[k] = ckf.x
             estimated_covs[k] = ckf.P
 
-
         ###——————————————————————————————————————————运行逆向滤波获取优化初值——————————————————————————————————————————###
 
         optimized_initial_state = None
@@ -434,69 +433,219 @@ class Algorithms:
             optimized_forward_states = estimated_states
             optimized_forward_covs = estimated_covs
 
+        pos_rmse = np.sqrt(np.sum((model.target_states[:, 0:2] - optimized_forward_states[:, 0:2]) ** 2, axis=1))
+        vel_rmse = np.sqrt(np.sum((model.target_states[:, 2:4] - optimized_forward_states[:, 2:4]) ** 2, axis=1))
 
-
-        frckf_pos_rmse = np.sqrt(np.sum((model.target_states[:, 0:2] - optimized_forward_states[:, 0:2]) ** 2, axis=1))
-        frckf_vel_rmse = np.sqrt(np.sum((model.target_states[:, 2:4] - optimized_forward_states[:, 2:4]) ** 2, axis=1))
         return {'color':'green',
                 'states': optimized_forward_states,
-                'covs': optimized_forward_covs,
-                'pos_rmse': frckf_pos_rmse,
-                'vel_rmse': frckf_vel_rmse, }
 
-    def run_frffckf(self, x0, P0, Q, backward_start_step, backward_partical_step):
+                'covs': optimized_forward_covs,
+                'pos_rmse': pos_rmse,
+                'vel_rmse': vel_rmse, }
+
+    def run_frffckf(self, x0, P0, Q, k, n):
 
         ###----------------------------------正向滤波到backward_start_step回合-----------------------------------------###
 
-        ckf = BearingOnlyCKF(x0, P0, Q, model.R, model.sample_time, model.sensor_trajectory)
+        forward_ckf = BearingOnlyCKF(x0, P0, Q, model.R, model.sample_time, model.sensor_trajectory)
 
-        # 运行滤波
-        full_states = np.zeros((model.steps + 1, 4))
-        full_covs = np.zeros((model.steps + 1, 4, 4))
+        forward_states = np.zeros((model.steps + 1, 4))
+        forward_covs = np.zeros((model.steps + 1, 4, 4))
 
-        estimated_states = np.zeros((model.steps + 1, 4))
-        estimated_covs = np.zeros((model.steps + 1, 4, 4))
+        forward_states[0] = x0
+        forward_covs[0] = P0
 
-        estimated_states[0] = x0
-        estimated_covs[0] = P0
-
-        for k in range(1, backward_start_step + 1):
-            ckf.step(model.measurements[k], model.target_states[k])
-            full_states[k] = ckf.x
-            full_covs[k] = ckf.P
+        for i in range(1, k + 1):
+            forward_ckf.step(model.measurements[i], model.target_states[i])
+            forward_states[i] = forward_ckf.x
+            forward_covs[i] = forward_ckf.P
 
         ###—————————————————————————————————————-—————运行逆向滤波获取优化初值—————————-—————————————————————————————————###
-        backward_start_state = full_states[backward_start_step]
-        backward_start_cov = full_covs[backward_start_step]
-        backward_sensor_trajectory = model.sensor_trajectory[:backward_start_step + 1][::-1]
+        backward_start_state = forward_states[k]
+        backward_start_cov = forward_covs[k]
+        backward_sensor_trajectory = model.sensor_trajectory[:k + 1][::-1]
+        backward_measurements = model.measurements[:(k + 1)][::-1]
         backward_ckf = BearingOnlyCKF(backward_start_state, backward_start_cov, Q, model.R, model.sample_time, backward_sensor_trajectory, backward=True)
 
-        backward_states = np.zeros((backward_start_step + 1, 4))
-        backward_covs = np.zeros((backward_start_step + 1, 4, 4))
+        backward_states = np.zeros((k + 1, 4))
+        backward_covs = np.zeros((k + 1, 4, 4))
         backward_states[0] = backward_start_state
         backward_covs[0] = backward_start_cov
 
-        for k in range(1, backward_start_step + 1):
-            backward_ckf.step(backward_sensor_trajectory[k], model.target_states[k])
-            backward_states[k] = backward_ckf.x
-            backward_covs[k] = backward_ckf.P
+        for i in range(1, k + 1):
+            backward_ckf.step(backward_measurements[i], model.target_states[i])
+            backward_states[i] = backward_ckf.x
+            backward_covs[i] = backward_ckf.P
 
         optimized_initial_state = backward_states[-1]
         optimized_initial_covariance = backward_covs[-1]
 
         ###---------------------------------------------正向滤波回到k回合-------------------------------------------------###
-        ckf_again = BearingOnlyCKF(optimized_initial_state, optimized_initial_covariance, Q, model.R, model.sample_time, model.sensor_trajectory)
+        forward_ckf = BearingOnlyCKF(optimized_initial_state, optimized_initial_covariance, Q, model.R, model.sample_time, model.sensor_trajectory)
 
         forward_states = np.zeros((model.steps + 1, 4))
         forward_covs = np.zeros((model.steps + 1, 4, 4))
         forward_states[0] = optimized_initial_state
         forward_covs[0] = optimized_initial_covariance
 
-        for k in range(1, backward_start_step + 1):
-            ckf_again.step(model.measurements[k], true_states[k])
-            forward_states[k] = forward_ckf.x
-            forward_covs[k] = forward_ckf.P
+        for i in range(1, k + 1):
+            forward_ckf.step(model.measurements[i], model.target_states[i])
+            forward_states[i] = forward_ckf.x
+            forward_covs[i] = forward_ckf.P
 
+        # 4. 局部正逆向滤波
+        for i in range(k, model.steps, 1):
+            # 正向滤波到k+1
+            forward_ckf.step(model.measurements[i + 1], model.target_states[i + 1])
+
+            # 逆向滤波到k+1-n
+            local_backward_sensor_trajectory = model.sensor_trajectory[i + 1 - n:i + 2][::-1]
+            local_backward_measurements = model.measurements[i + 1 - n:i + 2][::-1]
+            local_backward_ckf = BearingOnlyCKF(
+                forward_ckf.x, forward_ckf.P, Q, model.R, dt,
+                local_backward_sensor_trajectory, backward=True
+            )
+            for step in range(n):
+                #back_bearing = model.measurements[k + 1 - n + step]
+                #fwd_bearing = model.measurements[(k + 1 - n + step)]
+                #back_bearing1 = local_backward_measurements[step]
+                #local_backward_ckf.step(model.measurements[k + 1 - step_size + step])
+                local_backward_ckf.step(local_backward_measurements[step])
+
+            # 再正向滤波到k+1
+            local_forward_sensor_trajectory = model.sensor_trajectory[i + 1 - n:i + 2]
+            local_forward_measurements = model.measurements[i + 1 - n:i + 2]
+            local_forward_ckf = BearingOnlyCKF(
+                local_backward_ckf.x, local_backward_ckf.P, Q, model.R, dt,
+                local_forward_sensor_trajectory
+            )
+
+            for step in range(n):
+                local_forward_ckf.step(local_forward_sensor_trajectory[step])
+
+            forward_states[i+1] = local_forward_ckf.x
+            forward_covs[i+1] = local_forward_ckf.P
+
+        pos_rmse = np.sqrt(np.sum((model.target_states[:, 0:2] - forward_states[:, 0:2]) ** 2, axis=1))
+        vel_rmse = np.sqrt(np.sum((model.target_states[:, 2:4] - forward_states[:, 2:4]) ** 2, axis=1))
+
+        return {'color': 'purple',
+                'states': forward_states,
+                'covs': forward_covs,
+                'pos_rmse': pos_rmse,
+                'vel_rmse': vel_rmse, }
+
+    def run_frffckf1(self, x0, P0, Q, k, n):
+
+        # 存储最终估计的结果
+        estimation_states = np.zeros((model.steps + 1, 4))
+        estimation_covs = np.zeros((model.steps + 1, 4, 4))
+
+        estimation_states[0] = x0
+        estimation_covs[0] = P0
+
+        """运行正向CKF到第k回合"""
+
+        forward_ckf_k = BearingOnlyCKF(x0, P0, Q, model.R, model.sample_time, model.sensor_trajectory)
+
+        for i in range(1, k + 1):
+            forward_ckf_k.step(model.measurements[k], model.target_states[k])
+            estimation_states[k] = forward_ckf_k.x
+            estimation_covs[k] = forward_ckf_k.P
+
+        """从k回合运行逆向ckf直到初始回合，优化初值"""
+
+        # 使用前向滤波在指定步骤的估计作为逆向滤波的起点
+        backward_x0 = estimation_states[k].copy()
+        backward_P0 = estimation_covs[k].copy()
+
+        # 创建逆向轨迹 (从backward_start_step到0)
+        backward_trajectory = model.sensor_trajectory[:(k + 1)][::-1]
+
+        # 创建逆向测量
+        backward_measurements = model.measurements[:(k + 1)][::-1]
+
+        # 实例化逆向CKF
+        backward_ckf_k = BearingOnlyCKF(
+            backward_x0, backward_P0, Q, model.R, model.sample_time, backward_trajectory, backward=True
+        )
+
+        # 运行逆向滤波
+        backward_states = np.zeros((k + 1, 4))
+        backward_covs = np.zeros((k + 1, 4, 4))
+
+        backward_states[0] = backward_x0
+        backward_covs[0] = backward_P0
+
+        # 逆向滤波从索引1开始（对应原始序列的backward_start_step-1）
+        for k in range(1, k + 1):
+            backward_ckf_k.step(backward_measurements[k])
+            backward_states[k] = backward_ckf_k.x
+            backward_covs[k] = backward_ckf_k.P
+
+        # 逆向滤波优化后的初值是最后一步的状态
+        optimized_initial_state = backward_states[-1]
+        optimized_initial_covariance = backward_covs[-1]
+
+        """接下来循环如下的操作：
+           1.运行正向CKF到k+1回合
+           2.以1中的k+1回合的x和P为基础，反向运行n次逆向卡尔曼滤波，进行局部的初值优化"""
+
+        for i in range(k, model.steps, 1):
+            # 运行正向CKF到k+1回合
+            ckf_start = BearingOnlyCKF(estimation_states[i],
+                                       estimation_covs[i],
+                                       Q, model.R, model.sample_time,
+                                       model.sensor_trajectory)
+
+            ckf_start.step(model.measurements[i])
+
+            backward_ckf_n_x0 = ckf_start.x
+            backward_ckf_n_p0 = ckf_start.P
+
+            # 反向运行n次逆向卡尔曼滤波，进行局部的初值优化
+
+            # 获取k-n到k的所有轨迹和量测序列
+            backward_sensor_trajectory_n = model.sensor_trajectory[i + 1 - n:i + 2][::-1]
+            backward_measurements_n = model.measurements[i + 1 - n:i + 2][::-1]
+
+            backward_ckf_n = BearingOnlyCKF(backward_ckf_n_x0,
+                                            backward_ckf_n_p0,
+                                            Q, model.R, model.sample_time,
+                                            backward_sensor_trajectory_n)
+
+            # 进行n次逆向卡尔曼滤波
+            for step in range(n):
+                backward_ckf_n.step(backward_measurements[step])
+
+            ckf_n_x0 = backward_ckf_n.x
+            ckf_n_p0 = backward_ckf_n.P
+
+            # 再进行n次正向卡尔曼滤波
+            forward_sensor_trajectory_n = model.sensor_trajectory[i + 1 - n:i + 2]
+            forward_measurements_n = model.measurements[i + 1 - n:i + 2]
+
+            forward_ckf_n = BearingOnlyCKF(ckf_n_x0,
+                                           ckf_n_p0,
+                                           Q, model.R, model.sample_time,
+                                           forward_sensor_trajectory_n)
+
+            # 进行n次正向卡尔曼滤波
+            for step in range(n):
+                forward_ckf_n.step(forward_measurements_n[step])
+
+            # 存储结果
+            estimation_states[i] = forward_ckf_n.x
+            estimation_covs[i] = forward_ckf_n.P
+
+        pos_rmse = np.sqrt(np.sum((model.target_states[:, 0:2] - estimation_states[:, 0:2]) ** 2, axis=1))
+        vel_rmse = np.sqrt(np.sum((model.target_states[:, 2:4] - estimation_states[:, 2:4]) ** 2, axis=1))
+
+        return {'color': 'purple',
+            'states': estimation_states,
+            'covs': estimation_covs,
+            'pos_rmse': pos_rmse,
+            'vel_rmse': vel_rmse, }
 
 class Runner:
 
@@ -506,6 +655,8 @@ class Runner:
         self.method_map = {
             "ckf": algorithms.run_ckf,
             "frckf": algorithms.run_frckf,
+            "frffckf": algorithms.run_frffckf,
+            "frffckf1": algorithms.run_frffckf1,
         }
 
         self.result = []
@@ -552,6 +703,14 @@ class Runner:
             if self.method_name == 'frckf':
                 reverse_step = 400
                 result = target_method(x0, P0, Q, reverse_step)
+            elif self.method_name == 'frffckf':
+                reverse_step = 400
+                partical_rev_step = 10
+                result = target_method(x0, P0, Q, reverse_step, partical_rev_step)
+            elif self.method_name == 'frffckf1':
+                reverse_step = 400
+                partical_rev_step = 10
+                result = target_method(x0, P0, Q, reverse_step, partical_rev_step)
             else:
                 result = target_method(x0, P0, Q)
 
@@ -629,14 +788,14 @@ class Visulation:
 
         # 绘制真实轨迹和估计轨迹
 
-        plt.plot(true_states[:, 0], true_states[:, 1], 'b-', label='真实轨迹')
+        plt.plot(true_states[:, 0], true_states[:, 1], 'y-', label='真实轨迹')
         plt.plot(sensor_trajectory[:, 0], sensor_trajectory[:, 1], 'k-', label='观测者轨迹')
 
         for i in range(num_of_methods_used):
             estimation = self.plot_result[i]['estimation']
             name = self.plot_result[i]['name']
             color = self.plot_result[i]['color']
-            plt.plot(estimation[:, 0], estimation[:, 1], 'color', label=f"{name}算法{num}次平均估计轨迹")
+            plt.plot(estimation[:, 0], estimation[:, 1], color=color, label=f"{name}算法{num}次平均估计轨迹")
 
         plt.axis('equal')
         plt.grid(True)
@@ -655,7 +814,7 @@ class Visulation:
             name = self.plot_result[i]['name']
             pos_rmse = self.plot_result[i]['pos_rmse']
             color = self.plot_result[i]['color']
-            plt.plot(times_range, pos_rmse, 'color', label=f"{name}算法{num}次仿真平均位置误差")
+            plt.plot(times_range, pos_rmse, color=color, label=f"{name}算法{num}次仿真平均位置误差")
 
         plt.xlabel('时间 (s)')
         plt.ylabel('位置误差 (m)')
@@ -671,7 +830,7 @@ class Visulation:
             name = self.plot_result[i]['name']
             pos_rmse = self.plot_result[i]['vel_rmse']
             color = self.plot_result[i]['color']
-            plt.plot(times_range, pos_rmse, 'color', label=f"{name}算法{num}次仿真平均速度误差")
+            plt.plot(times_range, pos_rmse, color=color, label=f"{name}算法{num}次仿真平均速度误差")
 
         plt.xlabel('时间 (s)')
         plt.ylabel('速度误差 (m/s)')
@@ -691,12 +850,16 @@ if __name__ == '__main__':
 
     algorithms = Algorithms(model)
 
+    number = 1
     Runner = Runner(algorithms)
     Runner.select_method('ckf')
-    Runner.run_monte_carlo(1)
+    Runner.run_monte_carlo(number)
 
     Runner.select_method('frckf')
-    Runner.run_monte_carlo(1)
+    Runner.run_monte_carlo(number)
+
+    Runner.select_method('frffckf')
+    Runner.run_monte_carlo(number)
 
     Visulation = Visulation(Runner)
     Visulation.plot_figure()
