@@ -86,7 +86,7 @@ class Runner:
                 f"Unknown method: '{method}'. Supported methods are: {supported_methods}"
             )
 
-    def run_monte_carlo(self, num=None):
+    def run_monte_carlo(self, x0, p0, num=None):
         """
         使用已经生成的数据集运行蒙特卡洛仿真
 
@@ -102,8 +102,8 @@ class Runner:
         target_method = self.method_map[self.method_name]
 
         # 初始状态设置
-        x0 = np.array([4000.0, 4000.0, 0, -0])
-        P0 = np.diag([100.0 ** 2, 100.0 ** 2, 1.0 ** 2, 50.0 ** 2])
+        init_Xest = x0
+        init_Pest = p0
         Q = np.diag([0.1, 0.1, 0.01, 0.01])
 
         estimation_all = []
@@ -124,13 +124,13 @@ class Runner:
             partical_rev_step = 1
 
             if self.method_name == 'frckf':
-                result = target_method(x0, P0, Q, reverse_step)
+                result = target_method(init_Xest, init_Pest, Q, reverse_step)
             elif self.method_name == 'frffckf':
-                result = target_method(x0, P0, Q, reverse_step, partical_rev_step)
+                result = target_method(init_Xest, init_Pest, Q, reverse_step, partical_rev_step)
             elif self.method_name == 'frfrckf':
-                result = target_method(x0, P0, Q, reverse_step, partical_rev_step)
+                result = target_method(init_Xest, init_Pest, Q, reverse_step, partical_rev_step)
             else:
-                result = target_method(x0, P0, Q)
+                result = target_method(init_Xest, init_Pest, Q)
 
             estimation_all.append(result['states'])
             square_error_all.append(result['square_error'])

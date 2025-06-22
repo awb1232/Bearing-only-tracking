@@ -273,6 +273,11 @@ class Model:
                 self.sensor_trajectory[k, 0] = current_x
                 self.sensor_trajectory[k, 1] = current_y
 
+    def generate_sensor_trajectory_z1(self):
+
+
+        return 0
+
     def generate_bearings(self):
 
         for k in range(self.steps + 1):

@@ -208,9 +208,9 @@ class BearingOnlyPLKF:
         self.n = len(x0)  # 状态维度
         self.x = x0.copy()  # 状态向量
 
-        self.P = P0.copy()  # 协方差矩阵
+        #self.P = P0.copy()  # 协方差矩阵
         # self.x = np.array([0,0,0,0])
-        #self.P = np.eye(4)
+        self.P = np.eye(4)
         self.Q = Q.copy()  # 过程噪声协方差矩阵
         self.R = R  # 测量噪声协方差 (标量)
         self.dt = dt  # 时间步长
@@ -328,71 +328,10 @@ class BearingOnlyPLKF:
 
         return H, z_pl
 
-    def pseudo_linear_measurement(self, z):
-
-        sin_z = np.sin(z)
-        cos_z = np.cos(z)
-
-        # 构造伪线性测量矩阵 H = [sin(z), -cos(z), 0, 0]
-        H = np.zeros((1, self.n))
-        H[0, 0] = cos_z
-        H[0, 1] = -sin_z
-
-        return H
-
-    def calculate_debiasing_gain(self, H, P):
-        """
-        计算去偏增益矩阵
-        """
-        # 计算测量预测协方差
-        S = H @ P @ H.T + self.R
-
-        # 计算去偏增益参数
-        gamma = S / (S + self.R)
-
-        return gamma
-
     def normalize_angle(self, angle):
         """将角度归一化到[-pi, pi]范围内"""
         return (angle + np.pi) % (2 * np.pi) - np.pi
 
-    def predict(self):
-        """PLKF预测步骤"""
-        # 计算状态转移矩阵
-
-        # 预测状态
-        self.x = self.state_transition(self.x)
-
-        # 预测协方差
-        self.P = self.cov_transition(self.P)
-
-    def update(self):
-        """PLKF更新步骤"""
-        # 获取当前测量值
-        z = self.measurements[self.current_step]
-
-        # 预测测量值
-        z_pred = self.predict_bearing(self.x)
-
-        # 计算测量残差
-        z_residual = z - z_pred
-        z_residual = self.normalize_angle(z_residual[0])
-
-        # 构造伪线性测量系统
-        H, z_pl = self.construct_pseudo_linear_measurement(z)
-
-        # 标准卡尔曼滤波更新过程
-        S = H @ self.P @ H.T + self.R
-        K = self.P @ H.T / S[0, 0]
-
-        # 计算伪线性测量残差
-        # 在伪线性测量中，残差是与当前状态的线性关系
-        y = z_pl - H @ self.x
-
-        # 标准更新（无去偏）
-        self.x = self.x + K.flatten() * y[0]
-        I_KH = np.eye(self.n) - np.outer(K, H)
-        self.P = I_KH @ self.P @ I_KH.T + np.outer(K, K) * self.R
 
     def step(self):
         """执行完整的PLKF步骤：预测和更新"""
@@ -410,9 +349,11 @@ class BearingOnlyPLKF:
 
         K = Ppre @ H.T / S[0, 0]
 
-        z = self.measurements[self.current_step]
+        z_pre = H @ Xpre
+        z_res = z_pl[0][0] - z_pre[0]
 
-        add = np.squeeze(K * (z_pl - H @ Xpre))
+        add1 = K * (z_res)
+        add = np.squeeze(K * (z_res))
         #add = np.squeeze(K * (z - H @ Xpre))
 
         self.x = Xpre + add
