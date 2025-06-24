@@ -1,7 +1,6 @@
 from angel_process import *
 
-
-class BearingOnlyEKF:
+class BearingOnlyEKF_old:
 
     def __init__(self, x0, P0, Q, R, dt, observer_trajectory, measurements, backward=False):
         """
@@ -165,7 +164,7 @@ class BearingOnlyEKF:
         # 计算创新序列（测量残差）
         #z_residual = z - z_pred
         #z_residual[0] = self.normalize_angle(z_residual[0])
-        z_residual = rad2rad2sub1(z, z_pred)
+        z_residual = rad1rad2sub1(z, z_pred)
 
         # 更新状态
         self.x += K.flatten() * z_residual[0]
@@ -186,6 +185,112 @@ class BearingOnlyEKF:
         self.current_step += 1
 
         return self.x, self.P
+
+
+class BearingOnlyEKF:
+
+    def __init__(self, x0, P0, Q, R, dt, observer_trajectory, measurements, backward=False):
+        """
+        说明：假设你要进行n次卡尔曼滤波递推，那么observer_trajectory和measurements应该包含从初始状态和往后n个状态下的量测和坐标
+
+        :param x0: 初始状态向量 [x, y, vx, vy]
+        :param P0: 初始化协方差矩阵
+        :param Q: 过程噪声协方差矩阵
+        :param R: 测量噪声协方差 (标量，弧度)
+        :param dt: 时间步长（采样周期）
+        :param observer_trajectory: 传感器轨迹，每行为一个时间步的位置 [x, y]，长度为n+1
+        :param measurements: 量测方位序列（弧度）
+        :param backward: 是否逆向滤波
+        """
+
+        self.n = len(x0)  # 状态维度
+        self.x = x0.copy()  # 状态向量
+        self.P = P0.copy()  # 协方差矩阵
+        self.Q = Q.copy()  # 过程噪声协方差矩阵
+        self.R = R  # 测量噪声协方差 (标量)
+        self.dt = dt  # 时间步长
+        self.backward = backward
+
+        if self.backward:
+            self.observer_trajectory = observer_trajectory[::-1]
+            self.measurements = measurements[::-1]
+        else:
+            self.observer_trajectory = observer_trajectory
+            self.measurements = measurements
+
+        if len(self.observer_trajectory) != len(self.measurements):
+            raise ValueError("传入的坐标序列和方位序列不等长")
+
+        self.current_step = 1  # 当前步
+
+        if self.backward:
+            # 逆向状态转移矩阵
+            self.F = np.array([
+                [1, 0, -self.dt, 0],
+                [0, 1, 0, -self.dt],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1]
+            ])
+        else:
+            # 正向状态转移矩阵
+            self.F = np.array([
+                [1, 0, self.dt, 0],
+                [0, 1, 0, self.dt],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1]
+            ])
+
+    def predict_bearing(self, x, step=None):
+        """
+        测量函数 - 计算从观测者到目标的方位角
+        返回以弧度表示的方位角
+        """
+        if step is None:
+            step = self.current_step
+
+        observer_pos = self.observer_trajectory[step]
+        dx = x[0] - observer_pos[0]
+        dy = x[1] - observer_pos[1]
+        bearing = np.arctan2(dx, dy)
+
+        return np.array([bearing])
+
+    def step(self):
+
+        o_k = self.observer_trajectory[self.current_step]
+
+        # X(k|k-1)
+        Xpre = self.F @ self.x
+
+        # P(k|k-1)
+        Ppre = self.F @ self.P @ self.F.T #+ self.R
+
+        # H观测矩阵
+        H = np.array([(Xpre[1] - o_k[1])/((Xpre[1] - o_k[1]) ** 2 + (Xpre[0] - o_k[0]) ** 2),
+                      -(Xpre[0] - o_k[0])/((Xpre[1] - o_k[1]) ** 2 + (Xpre[0] - o_k[0]) ** 2),
+                      0,
+                      0])
+
+        # Z(k|k-1) 和 Z(k)
+        #Zpre = H @ Xpre 错误的预测方位的方法，因为这个Xpre不是用相对距离和相对速度创建的估计量，而是绝对距离和绝对速度
+        Zpre = self.predict_bearing(Xpre)
+        Z = self.measurements[self.current_step][0]     # 取索引0是因为measurements是一系列array
+        Z_residual = rad1rad2sub1(Z, Zpre)
+
+        # Sk
+        S = H @ self.P @ H.T + self.R
+
+        # K(k)
+        K = Ppre @ H.T / S
+
+        # X(k|k)
+        self.x = Xpre + K * (Z_residual)
+
+        # P(k|k)
+        self.P = Ppre - np.outer(K,H) @ Ppre # K和H的形状都是{ndarray(4,)}，不能直接用@相乘会报错
+
+        # 更新步数
+        self.current_step += 1
 
 
 class BearingOnlyPLKF:
@@ -222,6 +327,23 @@ class BearingOnlyPLKF:
         else:
             self.observer_trajectory = observer_trajectory
             self.measurements = measurements
+
+        if self.backward:
+            # 逆向状态转移矩阵
+            self.F = np.array([
+                [1, 0, -self.dt, 0],
+                [0, 1, 0, -self.dt],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1]
+            ])
+        else:
+            # 正向状态转移矩阵
+            self.F = np.array([
+                [1, 0, self.dt, 0],
+                [0, 1, 0, self.dt],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1]
+            ])
 
         if len(self.observer_trajectory) != len(self.measurements):
             raise ValueError("传入的坐标序列和方位序列不等长")
@@ -316,12 +438,12 @@ class BearingOnlyPLKF:
         H = np.zeros((1, self.n))
         #H[0, 0] = sin_z
         #H[0, 1] = -cos_z
-        H[0, 0] = -cos_z
-        H[0, 1] = sin_z
+        H[0, 0] = cos_z
+        H[0, 1] = -sin_z
 
         # 伪线性测量中的偏置项
         #bias_term = sin_z * observer_pos[0] - cos_z * observer_pos[1]
-        bias_term = -cos_z * observer_pos[0] + sin_z * observer_pos[1]
+        bias_term = cos_z * observer_pos[0] - sin_z * observer_pos[1]
 
         # 伪线性测量值(通常为0)
         z_pl = np.array([bias_term])
@@ -333,7 +455,7 @@ class BearingOnlyPLKF:
         return (angle + np.pi) % (2 * np.pi) - np.pi
 
 
-    def step(self):
+    def step1(self):
         """执行完整的PLKF步骤：预测和更新"""
 
         # 预测状态
@@ -364,13 +486,46 @@ class BearingOnlyPLKF:
 
         return self.x, self.P
 
+    def step(self):
 
+        opos_k = self.observer_trajectory[self.current_step]
+        Z_k = self.measurements[self.current_step][0]
+        cos_z = np.cos(Z_k)
+        sin_z = np.sin(Z_k)
 
-        
+        # 伪线性量测方程
+        H_pl = np.array([cos_z, -sin_z, 0, 0])
+
+        # Z(k)
+        Zpl_k = cos_z * opos_k[0] - sin_z * opos_k[1]
+
+        # X(k|k-1)
+        Xpre = self.F @ self.x
+
+        # P(k|k-1)
+        Ppre = self.F @ self.P @ self.F.T  # + self.R
+
+        # Sk
+        S = H_pl @ self.P @ H_pl.T + self.R
+
+        # K(k)
+        K = Ppre @ H_pl.T / S
+
+        Zpre = self.predict_bearing(Xpre)
+        Z_residual = rad1rad2sub1(Zpl_k, Zpre)
+
+        # X(k|k)
+        self.x = Xpre + K * (Z_residual)
+
+        # P(k|k)
+        self.P = Ppre - np.outer(K, H_pl) @ Ppre  # K和H的形状都是{ndarray(4,)}，不能直接用@相乘会报错
+
+        # 更新步数
+        self.current_step += 1
 
 
 class BearingOnlyUKF:
-    """增强版无迹卡尔曼滤波器用于纯方位目标运动分析"""
+    """无迹卡尔曼滤波器用于纯方位目标运动分析"""
 
     def __init__(self, x0, P0, Q, R, dt, observer_trajectory, measurements, backward=False):
         """
@@ -404,24 +559,35 @@ class BearingOnlyUKF:
         if len(self.observer_trajectory) != len(self.measurements):
             raise ValueError("传入的坐标序列和方位序列不等长")
 
+        if self.backward:
+            # 逆向状态转移矩阵
+            self.F = np.array([
+                [1, 0, -self.dt, 0],
+                [0, 1, 0, -self.dt],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1]
+            ])
+        else:
+            # 正向状态转移矩阵
+            self.F = np.array([
+                [1, 0, self.dt, 0],
+                [0, 1, 0, self.dt],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1]
+            ])
+
         self.current_step = 1  # 当前步
 
         # UKF参数
         self.alpha = 0.3  # 控制sigma点的散布程度
         self.beta = 2.0  # 先验分布的最优值 (2表示高斯分布)
-        self.kappa = 0  # 次要参数，通常设为0
+        self.kappa = 0  # 次要参数，通常设为0 (x为单变量时设置为0 )
 
         # 计算缩放参数
         self.lambda_ = self.alpha ** 2 * (self.n + self.kappa) - self.n
 
         # 权重参数计算
         self.compute_weights()
-
-        # 存储诊断信息
-        self.innovation = []  # 保存创新序列
-        self.innovation_covariance = []  # 保存创新协方差
-        self.nees = []  # 归一化估计误差平方 (NEES)
-        self.nis = []  # 归一化创新平方 (NIS)
 
     def compute_weights(self):
         """计算sigma点的权重"""
@@ -594,22 +760,11 @@ class BearingOnlyUKF:
         z_residual = z - z_mean
         z_residual[0] = self.normalize_angle(z_residual[0])
 
-        # 保存创新和创新协方差用于诊断
-        self.innovation.append(z_residual[0])
-        self.innovation_covariance.append(P_zz)
-
-        # 计算归一化创新平方 (NIS)
-        nis = z_residual[0] ** 2 / P_zz
-        self.nis.append(nis)
-
         # 更新状态和协方差
         self.x += K * z_residual[0]
         self.P -= np.outer(K, K) * P_zz
 
-        # 确保协方差矩阵保持对称
-        self.P = (self.P + self.P.T) / 2
-
-    def step(self, true_state=None):
+    def step1(self, true_state=None):
         """执行完整的UKF步骤：预测和更新"""
         # 预测步骤
         sigma_points_pred = self.predict()
@@ -622,6 +777,54 @@ class BearingOnlyUKF:
 
         return self.x, self.P
 
+    def step(self):
+
+        Z = self.measurements[self.current_step]
+
+        # 生成sigma采样点
+        sigma_points = self.generate_sigma_points()
+
+        # 对各采样点进行状态转移计算
+        sigma_points_pred = np.array([self.state_transition(sigma, add_noise=False) for sigma in sigma_points])
+
+        # X(k|k-1)
+        x_pred = np.sum(self.weights_m.reshape(-1, 1) * sigma_points_pred, axis=0)
+
+        # P(k|k-1)
+        P_pred = np.zeros((self.n, self.n))
+        for i in range(len(sigma_points_pred)):
+            diff = sigma_points_pred[i] - x_pred
+            P_pred += self.weights_c[i] * np.outer(diff, diff)
+
+        # Z(k|k-1)
+        z_pred = np.array([self.measurement_function(x) for x in sigma_points_pred])
+        z_mean = np.sum(self.weights_m.reshape(-1, 1) * z_pred, axis=0)
+
+        # 计算测量预测协方差
+        P_zz = 0
+        for i in range(len(z_pred)):
+            diff = rad1rad2sub1(z_pred[i], z_mean)
+            P_zz += self.weights_c[i] * diff ** 2
+
+        P_zz += self.R
+
+        # 计算状态与测量的互相关矩阵
+        P_xz = np.zeros(self.n)
+        for i in range(len(sigma_points_pred)):
+            diff_x = sigma_points_pred[i] - self.x
+            diff_z = rad1rad2sub1(z_pred[i], z_mean)
+            P_xz += self.weights_c[i] * diff_x * diff_z
+
+        # 计算卡尔曼增益
+        K = P_xz / P_zz
+
+        Z_resudial =rad1rad2sub1(Z, z_mean)
+
+        # 更新状态和协方差
+        self.x += K * Z_resudial
+        self.P -= np.outer(K, K) * P_zz
+
+        self.current_step += 1
 
 class BearingOnlyCKF:
     """

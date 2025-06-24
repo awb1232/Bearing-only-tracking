@@ -54,7 +54,7 @@ class Algorithms:
 
         state_err = (self.model.target_states - estimated_states) ** 2
 
-        return {'color': 'yellow',
+        return {'color': 'violet',
                 'states': estimated_states,
                 'covs': estimated_covs,
                 'square_error': state_err,
@@ -81,7 +81,7 @@ class Algorithms:
 
         state_err = (self.model.target_states - estimated_states) ** 2
 
-        return {'color': 'red',
+        return {'color': 'cyan',
                 'states': estimated_states,
                 'covs': estimated_covs,
                 'square_error': state_err,

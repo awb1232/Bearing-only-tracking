@@ -90,8 +90,6 @@ class Point2D:
             self.accelerated_linear_motion(dt, acc_direction)
 
 
-
-
 class Model:
 
     def __init__(self,
@@ -150,8 +148,8 @@ class Model:
 
         for k in range(self.steps + 1):
             t = k * self.sample_time
-            self.sensor_trajectory[k, 0] = 100 * np.sin(t / 20)
-            self.sensor_trajectory[k, 1] = 50 * np.sin(t / 10)
+            self.sensor_states[k, 0] = 100 * np.sin(t / 20)
+            self.sensor_states[k, 1] = 50 * np.sin(t / 10)
 
     def generate_sensor_trajectory_circle(self,
                                           clockwise=False):
@@ -273,15 +271,10 @@ class Model:
                 self.sensor_trajectory[k, 0] = current_x
                 self.sensor_trajectory[k, 1] = current_y
 
-    def generate_sensor_trajectory_z1(self):
-
-
-        return 0
-
     def generate_bearings(self):
 
         for k in range(self.steps + 1):
-            observer_pos = self.sensor_trajectory[k]
+            observer_pos = self.sensor_states[k]
             dx = self.target_states[k, 0] - observer_pos[0]
             dy = self.target_states[k, 1] - observer_pos[1]
             true_bearing = np.arctan2(dx, dy)
@@ -290,7 +283,7 @@ class Model:
     def generate_measurements(self):
 
         for k in range(self.steps + 1):
-            observer_pos = self.sensor_trajectory[k]
+            observer_pos = self.sensor_states[k]
             dx = self.target_states[k, 0] - observer_pos[0]
             dy = self.target_states[k, 1] - observer_pos[1]
             true_bearing = np.arctan2(dx, dy)

@@ -26,6 +26,6 @@ def rad1rad2sub(rad1, rad2):
 
     return (rad1 - rad2) % (2 * np.pi)
 
-def rad2rad2sub1(rad1, rad2):
+def rad1rad2sub1(rad1, rad2):
 
     return (rad1 - rad2 + np.pi) % (2 * np.pi) - np.pi

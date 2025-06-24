@@ -180,7 +180,6 @@ class Runner:
         runner_result = {'name': self.method_name,
                          'num': self.mc_iterations,
                          'time': self.model.times,
-                         'sensor_traj': self.model.sensor_trajectory,
                          'sensor_state': self.model.sensor_states,
                          'true_state': self.model.target_states,
                          'color': result['color'],
@@ -215,7 +214,7 @@ class Runner:
 
         # 绘制完整的真实轨迹和观测者轨迹
         true_states = self.result[0]['true_state']
-        sensor_trajectory = self.result[0]['sensor_traj']
+        sensor_trajectory = self.result[0]['sensor_state']
         num = self.result[0]['num']
 
         # 创建静态图
@@ -223,8 +222,8 @@ class Runner:
 
         # 绘制真实轨迹和估计轨迹
 
-        plt.plot(true_states[:, 0], true_states[:, 1], 'y-', label='真实轨迹')
-        plt.plot(sensor_trajectory[:, 0], sensor_trajectory[:, 1], 'k-', label='观测者轨迹')
+        plt.plot(true_states[:, 0], true_states[:, 1], 'red', label='真实轨迹')
+        plt.plot(sensor_trajectory[:, 0], sensor_trajectory[:, 1], 'blue', label='传感器轨迹')
 
         for i in range(num_of_methods_used):
             estimation = self.result[i]['estimation']
