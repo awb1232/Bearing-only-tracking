@@ -54,7 +54,7 @@ class Algorithms:
 
         state_err = (self.model.target_states - estimated_states) ** 2
 
-        return {'color': 'violet',
+        return {'color': 'black',
                 'states': estimated_states,
                 'covs': estimated_covs,
                 'square_error': state_err,
@@ -108,7 +108,7 @@ class Algorithms:
 
         state_err = (self.model.target_states - estimated_states) ** 2
 
-        return {'color': 'blue',
+        return {'color': 'violet',
                 'states': estimated_states,
                 'covs': estimated_covs,
                 'square_error': state_err,
@@ -133,7 +133,7 @@ class Algorithms:
         part_frckf_positions = self.model.sensor_states[:(rev_start_step + 1)]
         part_frckf_measurements = self.model.measurements[:(rev_start_step + 1)]
 
-        part_forward_ckf = BearingOnlyCKF(x0, P0, Q, self.model.R, self.model.sample_time,
+        part_forward_ckf = BearingOnlyUKF(x0, P0, Q, self.model.R, self.model.sample_time,
                                           part_frckf_positions, part_frckf_measurements)
 
         # 进行正向滤波迭代
@@ -145,7 +145,7 @@ class Algorithms:
         reverse_ckf_init_cov = part_forward_ckf.P
 
         # 初始化逆向滤波
-        part_reverse_ckf = BearingOnlyCKF(reverse_ckf_init_state, reverse_ckf_init_cov, Q, self.model.R, self.model.sample_time,
+        part_reverse_ckf = BearingOnlyUKF(reverse_ckf_init_state, reverse_ckf_init_cov, Q, self.model.R, self.model.sample_time,
                                           part_frckf_positions, part_frckf_measurements, backward=True)
 
         # 进行逆向滤波迭代
@@ -160,7 +160,7 @@ class Algorithms:
         estimated_covs[0] = optimized_initial_cov
 
         # 基于优化初值进行全局正向滤波
-        forward_ckf = BearingOnlyCKF(optimized_initial_state, optimized_initial_cov, Q, self.model.R, self.model.sample_time,
+        forward_ckf = BearingOnlyUKF(optimized_initial_state, optimized_initial_cov, Q, self.model.R, self.model.sample_time,
                                           self.model.sensor_states, self.model.measurements)
 
         # 存储结果，这里最好不要用 i
@@ -204,7 +204,7 @@ class Algorithms:
         long_frckf_positions = self.model.sensor_states[:(rev_start_step + 1)]
         long_frckf_measurements = self.model.measurements[:(rev_start_step + 1)]
 
-        long_forward_ckf = BearingOnlyCKF(x0, P0, Q, self.model.R, self.model.sample_time,
+        long_forward_ckf = BearingOnlyUKF(x0, P0, Q, self.model.R, self.model.sample_time,
                                        long_frckf_positions, long_frckf_measurements)
 
 
@@ -215,7 +215,7 @@ class Algorithms:
         long_reverse_ckf_init_state = long_forward_ckf.x
         long_forward_ckf_init_covs = long_forward_ckf.P
 
-        long_reverse_ckf = BearingOnlyCKF(long_reverse_ckf_init_state, long_forward_ckf_init_covs, Q, self.model.R, self.model.sample_time,
+        long_reverse_ckf = BearingOnlyUKF(long_reverse_ckf_init_state, long_forward_ckf_init_covs, Q, self.model.R, self.model.sample_time,
                                        long_frckf_positions, long_frckf_measurements, backward=True)
 
         for i in range(1, rev_start_step + 1):
@@ -228,7 +228,7 @@ class Algorithms:
         estimated_covs[0] = optimized_initial_covariance
 
         # 再正向滤波回到rev_start_step环节
-        long_forward_ckf_again = BearingOnlyCKF(optimized_initial_state, optimized_initial_covariance, Q, self.model.R,
+        long_forward_ckf_again = BearingOnlyUKF(optimized_initial_state, optimized_initial_covariance, Q, self.model.R,
                                         self.model.sample_time, long_frckf_positions, long_frckf_measurements)
 
         for ii in range(1, rev_start_step + 1):
@@ -251,7 +251,7 @@ class Algorithms:
             one_step_position = self.model.sensor_states[j-1: j+1]   # 获取第j个元素
             one_step_measurement = self.model.measurements[j-1: j+1]
 
-            one_step_ckf = BearingOnlyCKF(one_step_ckf_init_state, one_step_ckf_init_cov, Q, self.model.R,
+            one_step_ckf = BearingOnlyUKF(one_step_ckf_init_state, one_step_ckf_init_cov, Q, self.model.R,
                                         self.model.sample_time, one_step_position, one_step_measurement)
 
             one_step_ckf.step()
@@ -263,7 +263,7 @@ class Algorithms:
             short_frckf_position = self.model.sensor_states[j - short_rev_step_length:j+1]
             short_frckf_measurement = self.model.measurements[j - short_rev_step_length:j+1]
 
-            short_reverse_ckf = BearingOnlyCKF(short_reverse_init_state, short_reverse_init_cov, Q, self.model.R,
+            short_reverse_ckf = BearingOnlyUKF(short_reverse_init_state, short_reverse_init_cov, Q, self.model.R,
                                                self.model.sample_time, short_frckf_position, short_frckf_measurement,
                                                backward=True)
 
@@ -274,7 +274,7 @@ class Algorithms:
             short_forward_init_state = short_reverse_ckf.x
             short_forward_init_cov = short_reverse_ckf.P
 
-            short_forward_ckf = BearingOnlyCKF(short_forward_init_state, short_forward_init_cov, Q, self.model.R,
+            short_forward_ckf = BearingOnlyUKF(short_forward_init_state, short_forward_init_cov, Q, self.model.R,
                                         self.model.sample_time, short_frckf_position, short_frckf_measurement)
 
             for k in range(1, short_rev_step_length + 1):

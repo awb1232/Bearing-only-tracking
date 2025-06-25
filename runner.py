@@ -121,7 +121,7 @@ class Runner:
             self.model.measurements = self.all_measurements[i].copy()
 
             reverse_step = 600
-            partical_rev_step = 1
+            partical_rev_step = 20
 
             if self.method_name == 'frckf':
                 result = target_method(init_Xest, init_Pest, Q, reverse_step)

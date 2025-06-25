@@ -24,9 +24,9 @@ def main():
     P0 = np.diag([100.0 ** 2, 100.0 ** 2, 1.0 ** 2, 50.0 ** 2])
 
     methods = [
-                #'plkf',
+                'plkf',
                 'ekf',
-                'ukf',
+                #'ukf',
                 #'ckf',
                 #'frckf',
                 #'frfrckf',

@@ -1,191 +1,5 @@
 from angel_process import *
 
-class BearingOnlyEKF_old:
-
-    def __init__(self, x0, P0, Q, R, dt, observer_trajectory, measurements, backward=False):
-        """
-        说明：假设你要进行n次卡尔曼滤波递推，那么observer_trajectory和measurements应该包含从初始状态和往后n个状态下的量测和坐标
-
-        :param x0: 初始状态向量 [x, y, vx, vy]
-        :param P0: 初始化协方差矩阵
-        :param Q: 过程噪声协方差矩阵
-        :param R: 测量噪声协方差 (标量，弧度)
-        :param dt: 时间步长（采样周期）
-        :param observer_trajectory: 传感器轨迹，每行为一个时间步的位置 [x, y]，长度为n+1
-        :param measurements: 量测方位序列（弧度）
-        :param backward: 是否逆向滤波
-        """
-
-        self.n = len(x0)  # 状态维度
-        self.x = x0.copy()  # 状态向量
-        self.P = P0.copy()  # 协方差矩阵
-        self.Q = Q.copy()  # 过程噪声协方差矩阵
-        self.R = R  # 测量噪声协方差 (标量)
-        self.dt = dt  # 时间步长
-        self.backward = backward
-
-        if self.backward:
-            self.observer_trajectory = observer_trajectory[::-1]
-            self.measurements = measurements[::-1]
-        else:
-            self.observer_trajectory = observer_trajectory
-            self.measurements = measurements
-
-        if len(self.observer_trajectory) != len(self.measurements):
-            raise ValueError("传入的坐标序列和方位序列不等长")
-
-        self.current_step = 1  # 当前步
-
-    def state_transition(self, x, add_noise=False):
-        """
-        状态转移函数 - 匀速直线运动模型
-        x = [位置x, 位置y, 速度vx, 速度vy]
-        """
-        if self.backward:
-            # 逆向状态转移矩阵
-            F = np.array([
-                [1, 0, -self.dt, 0],
-                [0, 1, 0, -self.dt],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1]
-            ])
-        else:
-            # 正向状态转移矩阵
-            F = np.array([
-                [1, 0, self.dt, 0],
-                [0, 1, 0, self.dt],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1]
-            ])
-
-        new_x = F @ x
-
-        # 添加过程噪声
-        if add_noise:
-            noise = np.random.multivariate_normal(np.zeros(self.n), self.Q)
-            new_x += noise
-
-        return new_x
-
-    def cov_transition(self, P, add_noise=False):
-        if self.backward:
-            # 逆向状态转移矩阵
-            F = np.array([
-                [1, 0, -self.dt, 0],
-                [0, 1, 0, -self.dt],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1]
-            ])
-        else:
-            # 正向状态转移矩阵
-            F = np.array([
-                [1, 0, self.dt, 0],
-                [0, 1, 0, self.dt],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1]
-            ])
-
-        Ppre = F @ P @ F.T
-
-        Ppre += self.Q
-
-        return Ppre
-
-    def measurement_jacobian(self, x):
-        """
-        计算测量函数关于状态的雅可比矩阵H
-        H = [∂h/∂x, ∂h/∂y, ∂h/∂vx, ∂h/∂vy]
-        """
-        observer_pos = self.observer_trajectory[self.current_step]
-        dx = x[0] - observer_pos[0]
-        dy = x[1] - observer_pos[1]
-
-        # 计算方位角测量对位置的偏导数
-        denominator = dx ** 2 + dy ** 2
-
-        # 防止分母为零
-        if denominator < 1e-10:
-            denominator = 1e-10
-
-        H = np.zeros((1, self.n))
-        H[0, 0] = dy / denominator  # ∂(arctan2(dy,dx))/∂x
-        H[0, 1] = -dx / denominator  # ∂(arctan2(dy,dx))/∂y
-        H[0, 2] = 0  # 速度不直接影响方位角测量
-        H[0, 3] = 0
-
-        return H
-
-    def predict_bearing(self, x, step=None):
-        """
-        测量函数 - 计算从观测者到目标的方位角
-        返回以弧度表示的方位角
-        """
-        if step is None:
-            step = self.current_step
-
-        observer_pos = self.observer_trajectory[step]
-        dx = x[0] - observer_pos[0]
-        dy = x[1] - observer_pos[1]
-        bearing = np.arctan2(dx, dy)
-
-        return np.array([bearing])
-
-    #def normalize_angle(self, angle):
-    #    """将角度归一化到[-pi, pi]范围内"""
-    #    return (angle + np.pi) % (2 * np.pi) - np.pi
-
-    def predict(self):
-
-        Xpre = self.state_transition(self.x)
-
-        Ppre = self.cov_transition(self.P)
-
-        self.x = Xpre
-
-        self.P = Ppre
-
-    def update(self):
-        """EKF更新步骤"""
-        # 计算预测测量值
-        z_pred = self.predict_bearing(self.x)
-
-        # 计算测量雅可比矩阵
-        H = self.measurement_jacobian(self.x)
-
-        # 计算新息协方差
-        S = H @ self.P @ H.T + self.R
-
-        # 计算卡尔曼增益
-        K = self.P @ H.T / S
-
-        # 获取实际测量值
-        z = self.measurements[self.current_step]
-
-        # 计算创新序列（测量残差）
-        #z_residual = z - z_pred
-        #z_residual[0] = self.normalize_angle(z_residual[0])
-        z_residual = rad1rad2sub1(z, z_pred)
-
-        # 更新状态
-        self.x += K.flatten() * z_residual[0]
-
-        # 约瑟夫形式更新协方差，提高数值稳定性
-        I = np.eye(self.n)
-        self.P = (I - np.outer(K, H)) @ self.P #@ (I - np.outer(K, H)).T + self.R * np.outer(K, K)
-
-    def step(self):
-        """执行完整的EKF步骤：预测和更新"""
-        # 预测步骤
-        self.predict()
-
-        # 更新步骤
-        self.update()
-
-        # 更新当前步
-        self.current_step += 1
-
-        return self.x, self.P
-
 
 class BearingOnlyEKF:
 
@@ -273,7 +87,7 @@ class BearingOnlyEKF:
 
         # Z(k|k-1) 和 Z(k)
         #Zpre = H @ Xpre 错误的预测方位的方法，因为这个Xpre不是用相对距离和相对速度创建的估计量，而是绝对距离和绝对速度
-        Zpre = self.predict_bearing(Xpre)
+        Zpre = self.predict_bearing(Xpre)[0]
         Z = self.measurements[self.current_step][0]     # 取索引0是因为measurements是一系列array
         Z_residual = rad1rad2sub1(Z, Zpre)
 
@@ -313,9 +127,9 @@ class BearingOnlyPLKF:
         self.n = len(x0)  # 状态维度
         self.x = x0.copy()  # 状态向量
 
-        #self.P = P0.copy()  # 协方差矩阵
+        self.P = P0.copy()  # 协方差矩阵
         # self.x = np.array([0,0,0,0])
-        self.P = np.eye(4)
+        #self.P = np.eye(4)
         self.Q = Q.copy()  # 过程噪声协方差矩阵
         self.R = R  # 测量噪声协方差 (标量)
         self.dt = dt  # 时间步长
@@ -559,23 +373,6 @@ class BearingOnlyUKF:
         if len(self.observer_trajectory) != len(self.measurements):
             raise ValueError("传入的坐标序列和方位序列不等长")
 
-        if self.backward:
-            # 逆向状态转移矩阵
-            self.F = np.array([
-                [1, 0, -self.dt, 0],
-                [0, 1, 0, -self.dt],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1]
-            ])
-        else:
-            # 正向状态转移矩阵
-            self.F = np.array([
-                [1, 0, self.dt, 0],
-                [0, 1, 0, self.dt],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1]
-            ])
-
         self.current_step = 1  # 当前步
 
         # UKF参数
@@ -696,90 +493,7 @@ class BearingOnlyUKF:
 
         return np.array([bearing])
 
-    def normalize_angle(self, angle):
-        """将角度归一化到[-pi, pi]范围内"""
-        return (angle + np.pi) % (2 * np.pi) - np.pi
-
-    def predict(self):
-        """UKF预测步骤"""
-        # 生成sigma点
-        sigma_points = self.generate_sigma_points()
-
-        # 传播sigma点
-        sigma_points_pred = np.array([self.state_transition(sigma, add_noise=False) for sigma in sigma_points])
-
-        # 计算预测状态
-        x_pred = np.sum(self.weights_m.reshape(-1, 1) * sigma_points_pred, axis=0)
-
-        # 计算预测协方差
-        P_pred = np.zeros((self.n, self.n))
-        for i in range(len(sigma_points_pred)):
-            diff = sigma_points_pred[i] - x_pred
-            P_pred += self.weights_c[i] * np.outer(diff, diff)
-
-        # 添加过程噪声协方差
-        P_pred += self.Q
-
-        # 更新状态和协方差
-        self.x = x_pred
-        self.P = P_pred
-
-        return sigma_points_pred
-
-    def update(self, sigma_points_pred):
-        """UKF更新步骤"""
-        # 预测测量值
-        z_pred = np.array([self.measurement_function(x) for x in sigma_points_pred])
-
-        # 计算预测测量值的均值
-        z_mean = np.sum(self.weights_m.reshape(-1, 1) * z_pred, axis=0)
-
-        # 计算测量预测协方差
-        P_zz = 0
-        for i in range(len(z_pred)):
-            diff = z_pred[i] - z_mean
-            diff[0] = self.normalize_angle(diff[0])
-            P_zz += self.weights_c[i] * diff[0] ** 2
-
-        # 添加测量噪声
-        P_zz += self.R
-
-        # 计算状态与测量的互相关矩阵
-        P_xz = np.zeros(self.n)
-        for i in range(len(sigma_points_pred)):
-            diff_x = sigma_points_pred[i] - self.x
-            diff_z = z_pred[i] - z_mean
-            diff_z[0] = self.normalize_angle(diff_z[0])
-            P_xz += self.weights_c[i] * diff_x * diff_z[0]
-
-        # 计算卡尔曼增益
-        K = P_xz / P_zz
-
-        # 计算测量残差
-        z = self.measurements[self.current_step]  # 获取当前回合的量测方位角
-        z_residual = z - z_mean
-        z_residual[0] = self.normalize_angle(z_residual[0])
-
-        # 更新状态和协方差
-        self.x += K * z_residual[0]
-        self.P -= np.outer(K, K) * P_zz
-
-    def step1(self, true_state=None):
-        """执行完整的UKF步骤：预测和更新"""
-        # 预测步骤
-        sigma_points_pred = self.predict()
-
-        # 更新步骤
-        self.update(sigma_points_pred)
-
-        # 更新当前步
-        self.current_step += 1
-
-        return self.x, self.P
-
     def step(self):
-
-        Z = self.measurements[self.current_step]
 
         # 生成sigma采样点
         sigma_points = self.generate_sigma_points()
@@ -811,18 +525,21 @@ class BearingOnlyUKF:
         # 计算状态与测量的互相关矩阵
         P_xz = np.zeros(self.n)
         for i in range(len(sigma_points_pred)):
-            diff_x = sigma_points_pred[i] - self.x
-            diff_z = rad1rad2sub1(z_pred[i], z_mean)
-            P_xz += self.weights_c[i] * diff_x * diff_z
+           diff_x = sigma_points_pred[i] - self.x
+           diff_z = rad1rad2sub1(z_pred[i], z_mean)
+           P_xz += self.weights_c[i] * diff_x * diff_z
 
         # 计算卡尔曼增益
         K = P_xz / P_zz
 
-        Z_resudial =rad1rad2sub1(Z, z_mean)
+        Z = self.measurements[self.current_step]
+        Z_residual =rad1rad2sub1(Z, z_mean)
 
-        # 更新状态和协方差
-        self.x += K * Z_resudial
-        self.P -= np.outer(K, K) * P_zz
+        # X(k|k)
+        self.x = x_pred + K * Z_residual[0]
+
+        # P(k|k)
+        self.P = P_pred - np.outer(K, K) * P_zz
 
         self.current_step += 1
 
@@ -870,11 +587,6 @@ class BearingOnlyCKF:
         # CKF参数
         self.num_points = 2 * self.n  # CKF使用2n个立方点
         self.weight = 1.0 / (2 * self.n)  # 所有点的权重相等
-
-        # 保存诊断信息
-        self.bearing_pred_error = []  # 保存方位角预测误差
-        self.innovation_covariance = []  # 保存P阵
-
 
     def generate_cubature_points(self):
         """生成立方点"""
@@ -978,50 +690,56 @@ class BearingOnlyCKF:
 
         return np.array([bearing])
 
-    def normalize_angle(self, angle):
-        """将角度归一化到[-pi, pi]范围内"""
-        return (angle + np.pi) % (2 * np.pi) - np.pi
+    def step(self):
 
-    def predict(self):
-        """CKF预测步骤"""
         # 生成立方点
         cubature_points = self.generate_cubature_points()
 
         # 传播立方点
         propagated_points = np.array([self.state_transition(x, add_noise=False) for x in cubature_points])
 
-        # 计算预测状态均值
+        # X(k|k-1)
         x_pred = np.sum(propagated_points * self.weight, axis=0)
 
-        # 计算预测状态协方差
+        # P(k|k-1)
         P_pred = np.zeros((self.n, self.n))
         for i in range(len(propagated_points)):
-            diff = propagated_points[i] - x_pred
-            P_pred += self.weight * np.outer(diff, diff)
+            # diff = propagated_points[i] - x_pred
+            # P_pred += self.weight * np.outer(diff, diff)
+
+            P_pred += self.weight * np.outer(propagated_points[i], propagated_points[i])
 
         # 添加过程噪声协方差
-        P_pred += self.Q
+        P_pred += -np.outer(x_pred, x_pred) + self.Q
 
-        # 更新状态和协方差
         self.x = x_pred
         self.P = P_pred
 
-        return propagated_points
+        x_pred_cubature_points = self.generate_cubature_points()
 
-    def update(self, propagated_points):
-        """CKF更新步骤"""
+        # 上述计算与下面等价：
+        # for i in range(len(propagated_points)):
+        #     diff = propagated_points[i] - x_pred
+        #     P_pred += self.weight * np.outer(diff, diff)
+        # P_pred += self.Q
+
         # 通过测量函数变换传播点
-        z_points = np.array([self.measurement_function(x) for x in propagated_points])
+        z_points = np.array([self.measurement_function(x) for x in x_pred_cubature_points])
 
         # 计算预测测量均值
         z_pred = np.sum(z_points * self.weight, axis=0)
 
         # 计算预测测量协方差
+        # P_zz = 0
+        # for i in range(len(z_points)):
+        #     diff = z_points[i] - z_pred
+        #     diff[0] = self.normalize_angle(diff[0])
+        #     P_zz += self.weight * diff[0] ** 2
+
         P_zz = 0
         for i in range(len(z_points)):
-            diff = z_points[i] - z_pred
-            diff[0] = self.normalize_angle(diff[0])
-            P_zz += self.weight * diff[0] ** 2
+            diff = rad1rad2sub1(z_points[i], z_pred)
+            P_zz += self.weight * diff[0] ** 2 #有没有平方影响不大
 
         # 添加测量噪声协方差
         P_zz += self.R
@@ -1030,41 +748,20 @@ class BearingOnlyCKF:
         P_xz = np.zeros(self.n)
         for i in range(len(propagated_points)):
             diff_x = propagated_points[i] - self.x
-            diff_z = z_points[i] - z_pred
-            diff_z[0] = self.normalize_angle(diff_z[0])
+            diff_z = rad1rad2sub1(z_points[i], z_pred)
             P_xz += self.weight * diff_x * diff_z[0]
 
         # 计算卡尔曼增益
         K = P_xz / P_zz
 
-        # 计算测量残差（创新）
-        z = self.measurements[self.current_step]    # 获取当前回合的量测方位角
-        z_residual = z - z_pred
-        z_residual[0] = self.normalize_angle(z_residual[0])
+        # 计算测量残差
+        z = self.measurements[self.current_step]  # 获取当前回合的量测方位角
+        z_residual = rad1rad2sub1(z, z_pred)
 
-        # 保存创新和创新协方差用于诊断
-        self.bearing_pred_error.append(z_residual[0])
+        # X(k|k)
+        self.x = x_pred + K * z_residual[0]
 
-        self.innovation_covariance.append(P_zz)
+        # P(k|k)
+        self.P = P_pred - np.outer(K, K) * P_zz
 
-
-
-        # 更新状态和协方差
-        self.x += K * z_residual[0]
-        self.P -= np.outer(K, K) * P_zz
-
-        # 确保协方差矩阵保持对称
-        self.P = (self.P + self.P.T) / 2
-
-    def step(self):
-        """执行完整的CKF步骤：预测和更新"""
-        # 预测步骤
-        propagated_points = self.predict()
-
-        # 更新步骤
-        self.update(propagated_points)
-
-        # 更新当前步
         self.current_step += 1
-
-        return self.x, self.P
