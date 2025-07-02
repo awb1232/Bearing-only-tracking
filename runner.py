@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import time
+
+import numpy as np
 from tqdm import tqdm
 from algorithms import *
 
@@ -18,12 +20,19 @@ class Runner:
 
         self.method_name = None
         self.method_map = {
-            "ekf": algorithms.run_ekf,
-            "plkf": algorithms.run_plkf,
-            "ukf": algorithms.run_ukf,
-            "ckf": algorithms.run_ckf,
-            "frckf": algorithms.run_frckf,
-            'frfrckf': algorithms.run_frfrckf
+            "ekf": algorithms.ekf,
+            "plkf": algorithms.plkf,
+            "ukf": algorithms.ukf,
+            "ckf": algorithms.ckf,
+            "frekf": algorithms.frkf,
+            "frukf": algorithms.frkf,
+            "frckf": algorithms.frkf,
+            'lsfrekf': algorithms.lsfrkf,
+            'lsfrukf': algorithms.lsfrkf,
+            'lsfrckf': algorithms.lsfrkf,
+            'mle': algorithms.mle,
+            'lstsq': algorithms.lstsq,
+            'lstsq1': algorithms.lstsq1,
         }
 
         self.result = []
@@ -86,7 +95,7 @@ class Runner:
                 f"Unknown method: '{method}'. Supported methods are: {supported_methods}"
             )
 
-    def run_monte_carlo(self, x0, p0, num=None):
+    def run_monte_carlo(self, x0, p0, num=None, **kwargs):
         """
         使用已经生成的数据集运行蒙特卡洛仿真
 
@@ -97,6 +106,16 @@ class Runner:
             self.generate_monte_carlo_data(num)
         elif not self.measurements_generated:
             raise ValueError("请先调用 generate_monte_carlo_data 生成数据集")
+
+        if "reverse_step" in kwargs:
+            reverse_step = kwargs["reverse_step"]
+        else:
+            reverse_step = 600
+
+        if "partical_rev_step" in kwargs:
+            partical_rev_step = kwargs["partical_rev_step"]
+        else:
+            partical_rev_step = 20
 
         # 获取对应的函数
         target_method = self.method_map[self.method_name]
@@ -120,15 +139,17 @@ class Runner:
             # 使用保存的测量值
             self.model.measurements = self.all_measurements[i].copy()
 
-            reverse_step = 600
-            partical_rev_step = 20
 
-            if self.method_name == 'frckf':
-                result = target_method(init_Xest, init_Pest, Q, reverse_step)
-            elif self.method_name == 'frffckf':
-                result = target_method(init_Xest, init_Pest, Q, reverse_step, partical_rev_step)
-            elif self.method_name == 'frfrckf':
-                result = target_method(init_Xest, init_Pest, Q, reverse_step, partical_rev_step)
+            if self.method_name == 'ekf' or self.method_name == 'ukf' or self.method_name == 'ckf' :
+                result = target_method(init_Xest, init_Pest, Q)
+            elif self.method_name == 'frekf' or self.method_name == 'frukf' or self.method_name == 'frckf':
+                result = target_method(init_Xest, init_Pest, Q, 'ckf', reverse_step)
+            elif self.method_name == 'lsfrekf' or self.method_name == 'lsfrukf' or self.method_name == 'lsfrckf':
+                result = target_method(init_Xest, init_Pest, Q, 'ekf', reverse_step, partical_rev_step)
+            elif self.method_name == 'mle':
+                result = target_method(init_Xest, init_Pest, Q, 'ckf', reverse_step, partical_rev_step)
+            elif self.method_name == 'lstsq' or self.method_name == 'lstsq1':
+                result = target_method()
             else:
                 result = target_method(init_Xest, init_Pest, Q)
 
@@ -177,13 +198,16 @@ class Runner:
 
         spd_rmse = np.sqrt(np.sum(rmse[:, 2:]**2, axis=1))
 
+        if "color" in kwargs:
+            color = kwargs["color"]
+        else:
+            color = result['color'],
+
         runner_result = {'name': self.method_name,
                          'num': self.mc_iterations,
                          'time': self.model.times,
                          'sensor_state': self.model.sensor_states,
                          'true_state': self.model.target_states,
-                         'color': result['color'],
-                         'crlb': self.model.crlb,
                          'estimation': avg_estimation,
                          'avg_x_rmse': avg_rse[:, 0],
                          'avg_y_rmse': avg_rse[:, 1],
@@ -199,22 +223,45 @@ class Runner:
                          'pos_rmse': pos_rmse,
                          'crs_rmse': crs_rmse,
                          'spd_rmse': spd_rmse,
+                         'color': color,
+                         'crlb': self.model.crlb,
                          }
 
         self.result.append(runner_result)
 
         return avg_pos_rmse, avg_vel_rmse
 
-    def visualize(self, crlb_analysis=True):
+    def visualize(self, crlb_analysis=True, subplot=False, **kwargs):
 
         num_of_methods_used = len(self.result)
 
         if num_of_methods_used < 1:
             raise ValueError('未使用任何方法进行仿真！')
 
+        if "x_ylim" in kwargs:
+            x_ylim = kwargs["x_ylim"]
+
+        if "y_ylim" in kwargs:
+            y_ylim = kwargs["y_ylim"]
+
+        if "vx_ylim" in kwargs:
+            vx_ylim = kwargs["vx_ylim"]
+
+        if "vy_ylim" in kwargs:
+            vy_ylim = kwargs["vy_ylim"]
+
+        if "pos_ylim" in kwargs:
+            pos_ylim = kwargs["pos_ylim"]
+
+        if "crs_ylim" in kwargs:
+            crs_ylim = kwargs["crs_ylim"]
+
+        if "spd_ylim" in kwargs:
+            spd_ylim = kwargs["spd_ylim"]
+
         # 绘制完整的真实轨迹和观测者轨迹
         true_states = self.result[0]['true_state']
-        sensor_trajectory = self.result[0]['sensor_state']
+        sensor_states = self.result[0]['sensor_state']
         num = self.result[0]['num']
 
         # 创建静态图
@@ -223,13 +270,15 @@ class Runner:
         # 绘制真实轨迹和估计轨迹
 
         plt.plot(true_states[:, 0], true_states[:, 1], 'red', label='真实轨迹')
-        plt.plot(sensor_trajectory[:, 0], sensor_trajectory[:, 1], 'blue', label='传感器轨迹')
+        plt.plot(sensor_states[:, 0], sensor_states[:, 1], 'blue', label='传感器轨迹')
 
         for i in range(num_of_methods_used):
             estimation = self.result[i]['estimation']
             name = self.result[i]['name']
             color = self.result[i]['color']
-            plt.plot(estimation[:, 0], estimation[:, 1], color=color, label=f"{name}算法{num}次平均估计轨迹")
+
+            if name != 'mle' and name != 'lstsq':
+                plt.plot(estimation[:, 0], estimation[:, 1], color=color, label=f"{name}算法{num}次平均估计轨迹")
 
         plt.axis('equal')
         plt.grid(True)
@@ -248,79 +297,101 @@ class Runner:
 
         plt.figure()
         times_range = self.result[0]['time']
-        plt.subplot(1, 2, 1)
+        if subplot:
+            plt.subplot(1, 2, 1)
         for i in range(num_of_methods_used):
             name = self.result[i]['name']
             color = self.result[i]['color']
             rmse = self.result[i]['x_rmse']
-            plt.plot(times_range, rmse, color=color, label=f"{name}算法{num}次仿真 x RMSE")
+            if name != 'mle' and name != 'lstsq':
+                plt.plot(times_range, rmse, color=color, label=f"{name}算法{num}次仿真 x RMSE")
+            else:
+                mle_estimation_x_init = self.result[i]['estimation'][:, 0]
+                true_x_init = true_states[0][0]
+                plt.plot(times_range, mle_estimation_x_init - true_x_init * np.ones_like(mle_estimation_x_init), color=color, label=f"{name}算法{num}次仿真 x RMSE")
 
         if crlb_analysis:
             plt.plot(times_range, crlb_x, color='black', label='状态估计x CRLB')
-            plt.ylim(0, 1000)
 
+        if "x_ylim" in kwargs:
+            plt.ylim(0, x_ylim)
         plt.xlabel('时间 (s)')
         plt.ylabel('位置x误差 (m)')
         plt.title('位置x估计RMSE')
         plt.legend()
 
-        plt.subplot(1, 2, 2)
-        for i in range(num_of_methods_used):
-            name = self.result[i]['name']
-            color = self.result[i]['color']
-            avg_rse = self.result[i]['avg_x_rmse']
-            plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均位置x误差")
+        if subplot:
+            plt.subplot(1, 2, 2)
+            for i in range(num_of_methods_used):
+                name = self.result[i]['name']
+                color = self.result[i]['color']
+                avg_rse = self.result[i]['avg_x_rmse']
+                plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均位置x误差")
 
-        if crlb_analysis:
-            plt.plot(times_range, crlb_x, color='black', label='状态估计x CRLB')
-            plt.ylim(0, 1000)
+            if crlb_analysis:
+                plt.plot(times_range, crlb_x, color='black', label='状态估计x CRLB')
 
-        plt.xlabel('时间 (s)')
-        plt.ylabel('位置x误差 (m)')
-        plt.title('位置x平均估计误差')
-        plt.legend()
+            if "x_ylim" in kwargs:
+                plt.ylim(0, x_ylim)
+            plt.xlabel('时间 (s)')
+            plt.ylabel('位置x误差 (m)')
+            plt.title('位置x平均估计误差')
+            plt.legend()
+
         plt.show()
 
         # Y
         plt.figure()
         times_range = self.result[0]['time']
-        plt.subplot(1, 2, 1)
+        if subplot:
+            plt.subplot(1, 2, 1)
         for i in range(num_of_methods_used):
             name = self.result[i]['name']
             color = self.result[i]['color']
             rmse = self.result[i]['y_rmse']
-            plt.plot(times_range, rmse, color=color, label=f"{name}算法{num}次仿真 y RMSE")
+            if name != 'mle' and name != 'lstsq':
+                plt.plot(times_range, rmse, color=color, label=f"{name}算法{num}次仿真 y RMSE")
+            else:
+                mle_estimation_y_init = self.result[i]['estimation'][:, 1]
+                true_y_init = true_states[0][1]
+                plt.plot(times_range, mle_estimation_y_init - true_y_init * np.ones_like(mle_estimation_y_init),
+                         color=color, label=f"{name}算法{num}次仿真 y RMSE")
 
         if crlb_analysis:
             plt.plot(times_range, crlb_y, color='black', label='状态估计y CRLB')
-            plt.ylim(0, 1000)
 
+        if "y_ylim" in kwargs:
+            plt.ylim(0, y_ylim)
         plt.xlabel('时间 (s)')
         plt.ylabel('位置y误差 (m)')
         plt.title('位置y估计RMSE')
         plt.legend()
 
-        plt.subplot(1, 2, 2)
-        for i in range(num_of_methods_used):
-            name = self.result[i]['name']
-            color = self.result[i]['color']
-            avg_rse = self.result[i]['avg_y_rmse']
-            plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均位置y误差")
+        if subplot:
+            plt.subplot(1, 2, 2)
+            for i in range(num_of_methods_used):
+                name = self.result[i]['name']
+                color = self.result[i]['color']
+                avg_rse = self.result[i]['avg_y_rmse']
+                plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均位置y误差")
 
-        if crlb_analysis:
-            plt.plot(times_range, crlb_y, color='black', label='状态估计y CRLB')
-            plt.ylim(0, 1000)
+            if crlb_analysis:
+                plt.plot(times_range, crlb_y, color='black', label='状态估计y CRLB')
 
-        plt.xlabel('时间 (s)')
-        plt.ylabel('位置y误差 (m)')
-        plt.title('位置y平均估计误差')
-        plt.legend()
+            if "y_ylim" in kwargs:
+                plt.ylim(0, y_ylim)
+            plt.xlabel('时间 (s)')
+            plt.ylabel('位置y误差 (m)')
+            plt.title('位置y平均估计误差')
+            plt.legend()
+
         plt.show()
 
         # Vx
         plt.figure()
         times_range = self.result[0]['time']
-        plt.subplot(1, 2, 1)
+        if subplot:
+            plt.subplot(1, 2, 1)
         for i in range(num_of_methods_used):
             name = self.result[i]['name']
             color = self.result[i]['color']
@@ -329,34 +400,42 @@ class Runner:
 
         if crlb_analysis:
             plt.plot(times_range, crlb_vx, color='black', label='状态估计vx CRLB')
-            plt.ylim(0, 5)
+            plt.ylim(0, vx_ylim)
+
+        if "vx_ylim" in kwargs:
+            plt.ylim(0, vx_ylim)
 
         plt.xlabel('时间 (s)')
         plt.ylabel('速度x误差 (m/s)')
         plt.title('速度x估计RMSE')
         plt.legend()
 
-        plt.subplot(1, 2, 2)
-        for i in range(num_of_methods_used):
-            name = self.result[i]['name']
-            color = self.result[i]['color']
-            avg_rse = self.result[i]['avg_vx_rmse']
-            plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均速度x误差")
+        if subplot:
+            plt.subplot(1, 2, 2)
+            for i in range(num_of_methods_used):
+                name = self.result[i]['name']
+                color = self.result[i]['color']
+                avg_rse = self.result[i]['avg_vx_rmse']
+                plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均速度x误差")
 
-        if crlb_analysis:
-            plt.plot(times_range, crlb_vx, color='black', label='状态估计vx CRLB')
-            plt.ylim(0, 5)
+            if crlb_analysis:
+                plt.plot(times_range, crlb_vx, color='black', label='状态估计vx CRLB')
+                plt.ylim(0, vx_ylim)
 
-        plt.xlabel('时间 (s)')
-        plt.ylabel('速度x误差 (m/s)')
-        plt.title('速度x平均估计误差')
-        plt.legend()
+            if "vx_ylim" in kwargs:
+                plt.ylim(0, vx_ylim)
+            plt.xlabel('时间 (s)')
+            plt.ylabel('速度x误差 (m/s)')
+            plt.title('速度x平均估计误差')
+            plt.legend()
+
         plt.show()
 
         # Vy
         plt.figure()
         times_range = self.result[0]['time']
-        plt.subplot(1, 2, 1)
+        if subplot:
+            plt.subplot(1, 2, 1)
         for i in range(num_of_methods_used):
             name = self.result[i]['name']
             color = self.result[i]['color']
@@ -365,105 +444,147 @@ class Runner:
 
         if crlb_analysis:
             plt.plot(times_range, crlb_vy, color='black', label='状态估计vy CRLB')
-            plt.ylim(0, 5)
+            plt.ylim(0, vy_ylim)
 
+        if "vy_ylim" in kwargs:
+            plt.ylim(0, vy_ylim)
         plt.xlabel('时间 (s)')
         plt.ylabel('速度y误差 (m/s)')
         plt.title('速度y估计RMSE')
         plt.legend()
 
-        plt.subplot(1, 2, 2)
-        for i in range(num_of_methods_used):
-            name = self.result[i]['name']
-            color = self.result[i]['color']
-            avg_rse = self.result[i]['avg_vy_rmse']
-            plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均速度y误差")
+        if subplot:
+            plt.subplot(1, 2, 2)
+            for i in range(num_of_methods_used):
+                name = self.result[i]['name']
+                color = self.result[i]['color']
+                avg_rse = self.result[i]['avg_vy_rmse']
+                plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均速度y误差")
 
-        if crlb_analysis:
-            plt.plot(times_range, crlb_vy, color='black', label='状态估计vy CRLB')
-            plt.ylim(0, 5)
+            if crlb_analysis:
+                plt.plot(times_range, crlb_vy, color='black', label='状态估计vy CRLB')
+                plt.ylim(0, vy_ylim)
 
-        plt.xlabel('时间 (s)')
-        plt.ylabel('速度y误差 (m/s)')
-        plt.title('速度y平均估计误差')
-        plt.legend()
+            if "vy_ylim" in kwargs:
+                plt.ylim(0, vy_ylim)
+            plt.xlabel('时间 (s)')
+            plt.ylabel('速度y误差 (m/s)')
+            plt.title('速度y平均估计误差')
+            plt.legend()
+
         plt.show()
 
         # 绘制位置RMSE
         plt.figure()
 
         times_range = self.result[0]['time']
-        plt.subplot(1, 2, 1)
+        if subplot:
+            plt.subplot(1, 2, 1)
         for i in range(num_of_methods_used):
             name = self.result[i]['name']
             color = self.result[i]['color']
             rmse = self.result[i]['pos_rmse']
-            plt.plot(times_range, rmse, color=color, label=f"{name}算法{num}次仿真 pos RMSE")
+            if name != 'mle' and name != 'lstsq':
+                plt.plot(times_range, rmse, color=color, label=f"{name}算法{num}次仿真 pos RMSE")
+            else:
+                mle_estimation = self.result[i]['estimation']
+                true_state_init = true_states[0]
+                true_states_init = np.tile(true_state_init, (len(mle_estimation), 1))
+                init_pos_error = np.sum(np.sqrt((mle_estimation[:, :2] - true_states_init[:, :2]) ** 2), axis=1)
 
+                plt.plot(times_range, init_pos_error, color=color, label=f"{name}算法{num}次仿真初始 pos RMSE")
+
+        if "pos_ylim" in kwargs:
+            plt.ylim(0, pos_ylim)
         plt.xlabel('时间 (s)')
         plt.ylabel('位置误差 (m)')
         plt.title('位置估计RMSE')
         plt.legend()
 
-        plt.subplot(1, 2, 2)
-        for i in range(num_of_methods_used):
-            name = self.result[i]['name']
-            color = self.result[i]['color']
-            avg_rse = self.result[i]['avg_pos_rmse']
-            plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均位置误差")
+        if subplot:
+            plt.subplot(1, 2, 2)
+            for i in range(num_of_methods_used):
+                name = self.result[i]['name']
+                color = self.result[i]['color']
+                avg_rse = self.result[i]['avg_pos_rmse']
+                plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均位置误差")
+                plt.ylim(0, pos_ylim)
 
-        plt.xlabel('时间 (s)')
-        plt.ylabel('位置误差 (m)')
-        plt.title('位置平均估计误差')
-        plt.legend()
+            if "pos_ylim" in kwargs:
+                plt.ylim(0, pos_ylim)
+            plt.xlabel('时间 (s)')
+            plt.ylabel('位置误差 (m)')
+            plt.title('位置平均估计误差')
+            plt.legend()
+
         plt.show()
 
         # 绘制速度RMSE
         plt.figure()
         times_range = self.result[0]['time']
-        plt.subplot(1, 2, 1)
+        if subplot:
+            plt.subplot(1, 2, 1)
         for i in range(num_of_methods_used):
             name = self.result[i]['name']
             color = self.result[i]['color']
             rmse = self.result[i]['spd_rmse']
             plt.plot(times_range, rmse, color=color, label=f"{name}算法{num}次仿真 spd RMSE")
-            plt.xlabel('时间 (s)')
-            plt.ylabel('速度误差 (m/s)')
-            plt.title('速度估计RMSE')
-            plt.legend()
-        plt.subplot(1, 2, 2)
-        for i in range(num_of_methods_used):
-            name = self.result[i]['name']
-            color = self.result[i]['color']
-            avg_rse = self.result[i]['avg_vel_rmse']
-            plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均速度误差")
+
+        if "spd_ylim" in kwargs:
+            plt.ylim(0, spd_ylim)
         plt.xlabel('时间 (s)')
         plt.ylabel('速度误差 (m/s)')
-        plt.title('速度平均估计误差')
+        plt.title('速度估计RMSE')
         plt.legend()
+
+        if subplot:
+            plt.subplot(1, 2, 2)
+            for i in range(num_of_methods_used):
+                name = self.result[i]['name']
+                color = self.result[i]['color']
+                avg_rse = self.result[i]['avg_vel_rmse']
+                plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均速度误差")
+
+            if "spd_ylim" in kwargs:
+                plt.ylim(0, spd_ylim)
+            plt.xlabel('时间 (s)')
+            plt.ylabel('速度误差 (m/s)')
+            plt.title('速度平均估计误差')
+            plt.legend()
+
         plt.show()
 
         # 绘制航向RMSE
         plt.figure()
         times_range = self.result[0]['time']
-        plt.subplot(1, 2, 1)
+        if subplot:
+            plt.subplot(1, 2, 1)
         for i in range(num_of_methods_used):
             name = self.result[i]['name']
             color = self.result[i]['color']
             rmse = self.result[i]['crs_rmse']
             plt.plot(times_range, rmse, color=color, label=f"{name}算法{num}次仿真 crs RMSE")
+
+        if "crs_ylim" in kwargs:
+            plt.ylim(0, crs_ylim)
         plt.xlabel('时间 (s)')
         plt.ylabel('航向误差 (deg)')
         plt.title('航向估计RMSE')
         plt.legend()
-        plt.subplot(1, 2, 2)
-        for i in range(num_of_methods_used):
-            name = self.result[i]['name']
-            color = self.result[i]['color']
-            avg_rse = self.result[i]['avg_crs_rmse']
-            plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均速度误差")
-        plt.xlabel('时间 (s)')
-        plt.ylabel('航向误差 (deg)')
-        plt.title('航向平均估计误差')
-        plt.legend()
+
+        if subplot:
+            plt.subplot(1, 2, 2)
+            for i in range(num_of_methods_used):
+                name = self.result[i]['name']
+                color = self.result[i]['color']
+                avg_rse = self.result[i]['avg_crs_rmse']
+                plt.plot(times_range, avg_rse, color=color, label=f"{name}算法{num}次仿真平均速度误差")
+
+            if "crs_ylim" in kwargs:
+                plt.ylim(0, crs_ylim)
+            plt.xlabel('时间 (s)')
+            plt.ylabel('航向误差 (deg)')
+            plt.title('航向平均估计误差')
+            plt.legend()
+
         plt.show()

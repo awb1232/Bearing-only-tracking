@@ -6,7 +6,7 @@ class Point2D:
         """
         按照mode初始化ship的状态，并为其运动参数赋值
 
-        :param state: 状态，可以是
+        :param state: 状态，可以是[x,y,vx,vy]或者[b,d,c,v]（距原点的初方位(deg)，方位上的距离（m），航向（deg），航速（m/s））
         :param mode: 状态对应的物理量
 
         :param omega:
