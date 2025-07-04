@@ -157,7 +157,7 @@ def lstsq1(times, sensor_states, measurements):
 
     d = sensor_states[:,0] * np.sin(
             bearings
-        ) - sensor_states[:,0] * np.cos(bearings)
+        ) - sensor_states[:,1] * np.cos(bearings)
 
     res = np.linalg.solve(H.T.dot(H), H.T.dot(d))
     res = np.insert(res, 0, b0)  # res
@@ -201,7 +201,7 @@ def lstsq(times, sensor_states, measurements):
     cos_b_i = np.cos(measurements)
     sin_b_i = np.sin(measurements)
 
-    A = [cos_b_i, -sin_b_i, cos_b_i * delta_t_i, sin_b_i * delta_t_i]
+    A = [cos_b_i, -sin_b_i, cos_b_i * delta_t_i, -sin_b_i * delta_t_i]
     A = np.array(A).T
 
     pos_x = sensor_states[:, 0]
@@ -217,5 +217,3 @@ def lstsq(times, sensor_states, measurements):
     X = np.linalg.lstsq(A, B, rcond=None)[0]
 
     return X
-
-

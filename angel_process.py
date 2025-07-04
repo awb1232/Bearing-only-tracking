@@ -1,7 +1,13 @@
 import numpy as np
 
 def deg1deg2add(deg1, deg2):
+    """
+    求角度和，返回0-360度的和角
 
+    :param deg1:
+    :param deg2:
+    :return:
+    """
     return (deg1 + deg2) % 360
 
 def deg1deg2sub(deg1, deg2):
@@ -15,6 +21,13 @@ def deg1deg2sub(deg1, deg2):
     return (deg1 - deg2) % 360
 
 def deg1deg2sub1(deg1, deg2):
+    """
+    求角度差，返回-180~+180范围的差角
+
+    :param deg1:
+    :param deg2:
+    :return:
+    """
 
     return (deg1 - deg2 + 180) % 360 - 180
 

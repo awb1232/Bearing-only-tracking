@@ -25,9 +25,11 @@ class Runner:
             "ukf": algorithms.ukf,
             "ckf": algorithms.ckf,
             "frekf": algorithms.frkf,
+            "frplkf": algorithms.frkf,
             "frukf": algorithms.frkf,
             "frckf": algorithms.frkf,
             'lsfrekf': algorithms.lsfrkf,
+            'lsfrplkf': algorithms.lsfrkf,
             'lsfrukf': algorithms.lsfrkf,
             'lsfrckf': algorithms.lsfrkf,
             'mle': algorithms.mle,
@@ -123,7 +125,7 @@ class Runner:
         # 初始状态设置
         init_Xest = x0
         init_Pest = p0
-        Q = np.diag([0.1, 0.1, 0.01, 0.01])
+        Q = self.model.Q
 
         estimation_all = []
         square_error_all = []
@@ -139,17 +141,25 @@ class Runner:
             # 使用保存的测量值
             self.model.measurements = self.all_measurements[i].copy()
 
-
             if self.method_name == 'ekf' or self.method_name == 'ukf' or self.method_name == 'ckf' :
                 result = target_method(init_Xest, init_Pest, Q)
+
             elif self.method_name == 'frekf' or self.method_name == 'frukf' or self.method_name == 'frckf':
-                result = target_method(init_Xest, init_Pest, Q, 'ckf', reverse_step)
+                keyword='fr'
+                fliter_name = self.method_name.split(keyword, 1)[1]
+                result = target_method(init_Xest, init_Pest, Q, fliter_name, reverse_step)
+
             elif self.method_name == 'lsfrekf' or self.method_name == 'lsfrukf' or self.method_name == 'lsfrckf':
-                result = target_method(init_Xest, init_Pest, Q, 'ekf', reverse_step, partical_rev_step)
+                keyword = 'lsfr'
+                fliter_name = self.method_name.split(keyword, 1)[1]
+                result = target_method(init_Xest, init_Pest, Q, fliter_name, reverse_step, partical_rev_step)
+
             elif self.method_name == 'mle':
                 result = target_method(init_Xest, init_Pest, Q, 'ckf', reverse_step, partical_rev_step)
+
             elif self.method_name == 'lstsq' or self.method_name == 'lstsq1':
                 result = target_method()
+
             else:
                 result = target_method(init_Xest, init_Pest, Q)
 

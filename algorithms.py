@@ -144,6 +144,11 @@ class Algorithms:
         if fliter == 'ekf':
             part_forward_fliter = BearingOnlyEKF(x0, P0, Q, self.model.R, self.model.sample_time,
                                               part_frkf_positions, part_frkf_measurements)
+
+        elif fliter == 'plkf':
+            part_forward_fliter = BearingOnlyPLKF(x0, P0, Q, self.model.R, self.model.sample_time,
+                                              part_frkf_positions, part_frkf_measurements)
+
         elif fliter == 'ckf':
             part_forward_fliter = BearingOnlyCKF(x0, P0, Q, self.model.R, self.model.sample_time,
                                               part_frkf_positions, part_frkf_measurements)
@@ -164,6 +169,10 @@ class Algorithms:
         # 初始化逆向滤波
         if fliter == 'ekf':
             part_reverse_kf = BearingOnlyEKF(reverse_kf_init_state, reverse_kf_init_cov, Q, self.model.R,
+                                             self.model.sample_time,
+                                             part_frkf_positions, part_frkf_measurements, backward=True)
+        elif fliter == 'plkf':
+            part_reverse_kf = BearingOnlyPLKF(reverse_kf_init_state, reverse_kf_init_cov, Q, self.model.R,
                                              self.model.sample_time,
                                              part_frkf_positions, part_frkf_measurements, backward=True)
         elif fliter == 'ukf':
@@ -193,6 +202,12 @@ class Algorithms:
             forward_kf = BearingOnlyEKF(optimized_initial_state, optimized_initial_cov, Q, self.model.R,
                                          self.model.sample_time,
                                          self.model.sensor_states, self.model.measurements)
+
+        elif fliter == 'plkf':
+            forward_kf = BearingOnlyPLKF(optimized_initial_state, optimized_initial_cov, Q, self.model.R,
+                                         self.model.sample_time,
+                                         self.model.sensor_states, self.model.measurements)
+
         elif fliter == 'ukf':
             forward_kf = BearingOnlyUKF(optimized_initial_state, optimized_initial_cov, Q, self.model.R,
                                          self.model.sample_time,
@@ -257,6 +272,11 @@ class Algorithms:
         if fliter == 'ekf':
             long_forward_kf = BearingOnlyEKF(x0, P0, Q, self.model.R, self.model.sample_time,
                                              long_frkf_positions, long_frkf_measurements)
+
+        elif fliter == 'plkf':
+            long_forward_kf = BearingOnlyPLKF(x0, P0, Q, self.model.R, self.model.sample_time,
+                                             long_frkf_positions, long_frkf_measurements)
+
         elif fliter == 'ukf':
             long_forward_kf = BearingOnlyUKF(x0, P0, Q, self.model.R, self.model.sample_time,
                                              long_frkf_positions, long_frkf_measurements)
@@ -277,6 +297,11 @@ class Algorithms:
             long_reverse_kf = BearingOnlyEKF(long_reverse_ckf_init_state, long_forward_ckf_init_covs, Q, self.model.R,
                                              self.model.sample_time,
                                              long_frkf_positions, long_frkf_measurements, backward=True)
+        elif fliter == 'plkf':
+            long_reverse_kf = BearingOnlyPLKF(long_reverse_ckf_init_state, long_forward_ckf_init_covs, Q, self.model.R,
+                                             self.model.sample_time,
+                                             long_frkf_positions, long_frkf_measurements, backward=True)
+
         elif fliter == 'ukf':
             long_reverse_kf = BearingOnlyUKF(long_reverse_ckf_init_state, long_forward_ckf_init_covs, Q, self.model.R,
                                              self.model.sample_time,
@@ -302,6 +327,11 @@ class Algorithms:
             long_forward_kf_again = BearingOnlyEKF(optimized_initial_state, optimized_initial_covariance, Q,
                                                    self.model.R,
                                                    self.model.sample_time, long_frkf_positions, long_frkf_measurements)
+        elif fliter == 'plkf':
+            long_forward_kf_again = BearingOnlyPLKF(optimized_initial_state, optimized_initial_covariance, Q,
+                                                   self.model.R,
+                                                   self.model.sample_time, long_frkf_positions, long_frkf_measurements)
+
         elif fliter == 'ukf':
             long_forward_kf_again = BearingOnlyUKF(optimized_initial_state, optimized_initial_covariance, Q,
                                                    self.model.R,
@@ -336,6 +366,10 @@ class Algorithms:
             if fliter == 'ekf':
                 one_step_kf = BearingOnlyEKF(one_step_ckf_init_state, one_step_ckf_init_cov, Q, self.model.R,
                                              self.model.sample_time, one_step_position, one_step_measurement)
+
+            elif fliter == 'plkf':
+                one_step_kf = BearingOnlyPLKF(one_step_ckf_init_state, one_step_ckf_init_cov, Q, self.model.R,
+                                              self.model.sample_time, one_step_position, one_step_measurement)
             elif fliter == 'ukf':
                 one_step_kf = BearingOnlyUKF(one_step_ckf_init_state, one_step_ckf_init_cov, Q, self.model.R,
                                              self.model.sample_time, one_step_position, one_step_measurement)
@@ -358,6 +392,10 @@ class Algorithms:
                 short_reverse_kf = BearingOnlyEKF(short_reverse_init_state, short_reverse_init_cov, Q, self.model.R,
                                                   self.model.sample_time, short_frckf_position, short_frckf_measurement,
                                                   backward=True)
+            elif fliter == 'plkf':
+                short_reverse_kf = BearingOnlyPLKF(short_reverse_init_state, short_reverse_init_cov, Q, self.model.R,
+                                                  self.model.sample_time, short_frckf_position, short_frckf_measurement,
+                                                  backward=True)
             elif fliter == 'ukf':
                 short_reverse_kf = BearingOnlyUKF(short_reverse_init_state, short_reverse_init_cov, Q, self.model.R,
                                                   self.model.sample_time, short_frckf_position, short_frckf_measurement,
@@ -378,6 +416,9 @@ class Algorithms:
 
             if fliter == 'ekf':
                 short_forward_kf = BearingOnlyEKF(short_forward_init_state, short_forward_init_cov, Q, self.model.R,
+                                                  self.model.sample_time, short_frckf_position, short_frckf_measurement)
+            elif fliter == 'plkf':
+                short_forward_kf = BearingOnlyPLKF(short_forward_init_state, short_forward_init_cov, Q, self.model.R,
                                                   self.model.sample_time, short_frckf_position, short_frckf_measurement)
             elif fliter == 'ukf':
                 short_forward_kf = BearingOnlyUKF(short_forward_init_state, short_forward_init_cov, Q, self.model.R,

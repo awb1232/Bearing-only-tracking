@@ -1,11 +1,19 @@
 from angel_process import *
 
+"""
+说明：
+1.假设你要进行n次卡尔曼滤波递推，那么observer_trajectory和measurements应该包含从初始状态和往后n个状态下的量测和坐标
+2.observer_trajectory可以送入形状为{(n,2)}的二维位置坐标数组，也可以送入形状为{(n,4)}的四维状态坐标数组，但要保证前两个元素是x,y
+3.噪声矩阵R取角度或弧度时对滤波器的性能有明显影响，对于EKF/UKF/CKF，三者在R取角度弧度时都能运行，但对于PLKF，R矩阵取角度时可以运行，取弧度时跟踪会发散
+4.默认距离单位是米，速度单位是米/秒
+5.这个代码没有考虑Q阵，因为仿真的时候被跟踪目标是按照严格的匀速直线运动设置并生成轨迹的
+"""
 
 class BearingOnlyEKF:
 
     def __init__(self, x0, P0, Q, R, dt, observer_trajectory, measurements, backward=False):
         """
-        说明：假设你要进行n次卡尔曼滤波递推，那么observer_trajectory和measurements应该包含从初始状态和往后n个状态下的量测和坐标
+        纯方位拓展卡尔曼滤波EKF
 
         :param x0: 初始状态向量 [x, y, vx, vy]
         :param P0: 初始化协方差矩阵
@@ -77,7 +85,8 @@ class BearingOnlyEKF:
         Xpre = self.F @ self.x
 
         # P(k|k-1)
-        Ppre = self.F @ self.P @ self.F.T #+ self.R
+        Ppre = self.F @ self.P @ self.F.T
+        # Ppre = self.F @ self.P @ self.F.T + self.Q
 
         # H观测矩阵
         H = np.array([(Xpre[1] - o_k[1])/((Xpre[1] - o_k[1]) ** 2 + (Xpre[0] - o_k[0]) ** 2),
@@ -93,6 +102,7 @@ class BearingOnlyEKF:
 
         # S(k)
         S = H @ self.P @ H.T + self.R
+        # S = H @ self.P @ H.T + np.rad2deg(self.R)
 
         # K(k)
         K = Ppre @ H.T / S
@@ -108,11 +118,10 @@ class BearingOnlyEKF:
 
 
 class BearingOnlyPLKF:
-    """使用伪线性卡尔曼滤波器(PLKF)进行纯方位目标运动分析"""
 
     def __init__(self, x0, P0, Q, R, dt, observer_trajectory, measurements, backward=False):
         """
-        初始化伪线性卡尔曼滤波器
+        纯方位伪线性卡尔曼滤波器(PLKF)
 
         :param x0: 初始状态向量 [x, y, vx, vy]
         :param P0: 初始化协方差矩阵
@@ -128,9 +137,6 @@ class BearingOnlyPLKF:
         self.x = x0.copy()  # 状态向量
 
         self.P = P0.copy()  # 协方差矩阵
-        #self.x = np.array([0,0,0,0])
-        #self.x = observer_trajectory[0]
-        #self.P = np.eye(4)
         self.Q = Q.copy()  # 过程噪声协方差矩阵
         self.R = R  # 测量噪声协方差 (标量)
         self.dt = dt  # 时间步长
@@ -176,19 +182,26 @@ class BearingOnlyPLKF:
         Xpre = self.F @ self.x
 
         # P(k|k-1)
-        Ppre = self.F @ self.P @ self.F.T  # + self.Q
+        Ppre = self.F @ self.P @ self.F.T
+        # Ppre = self.F @ self.P @ self.F.T + self.Q
+
+        # d(k|k-1)
+        dst_pre_2 = (Xpre[0] - opos_k[0]) ** 2 + (Xpre[1] - opos_k[1]) ** 2
+
+        # n(k)
+        R_pl = dst_pre_2 * np.rad2deg(self.R)
 
         # 伪线性量测方程
         H_pl = np.array([cos_z, -sin_z, 0, 0])
 
         # S(k)
-        S = H_pl @ self.P @ H_pl.T + self.R
+        S = H_pl @ Ppre @ H_pl.T + R_pl
 
         # K(k)
         K = Ppre @ H_pl.T / S
 
         # Z(k|k-1) 和 Z(k)
-        Zpl_k = cos_z * opos_k[0] - sin_z * opos_k[1]   # Z(k)
+        Zpl_k = H_pl @ opos_k   # Z(k)
         # Zpre = self.predict_bearing(Xpre)
         Zpre = H_pl @ Xpre
         #Zpre = np.outer(H_pl, Xpre) # 这样Zpre会得到一个4×4矩阵，是不对的
@@ -205,11 +218,10 @@ class BearingOnlyPLKF:
 
 
 class BearingOnlyUKF:
-    """无迹卡尔曼滤波器用于纯方位目标运动分析"""
 
     def __init__(self, x0, P0, Q, R, dt, observer_trajectory, measurements, backward=False):
         """
-        说明：假设你要进行n次卡尔曼滤波递推，那么observer_trajectory和measurements应该包含从初始状态和往后n个状态下的量测和坐标
+        纯方位无迹卡尔曼滤波 UKF
 
         :param x0: 初始状态向量 [x, y, vx, vy]
         :param P0: 初始化协方差矩阵
@@ -376,6 +388,8 @@ class BearingOnlyUKF:
             diff = sigma_points_pred[i] - x_pred
             P_pred += self.weights_c[i] * np.outer(diff, diff)
 
+        # P_pred += self.Q
+
         # Z(k|k-1)
         z_pred = np.array([self.measurement_function(x) for x in sigma_points_pred])
         z_mean = np.sum(self.weights_m.reshape(-1, 1) * z_pred, axis=0)
@@ -387,6 +401,7 @@ class BearingOnlyUKF:
             P_zz += self.weights_c[i] * diff ** 2
 
         P_zz += self.R
+        # P_zz += np.rad2deg(self.R)
 
         # 计算状态与测量的互相关矩阵
         P_xz = np.zeros(self.n)
@@ -411,13 +426,10 @@ class BearingOnlyUKF:
 
 
 class BearingOnlyCKF:
-    """
-    使用立方卡尔曼滤波器(CKF)进行纯方位目标运动分析
-    """
 
     def __init__(self, x0, P0, Q, R, dt, observer_trajectory, measurements, backward=False):
         """
-        说明：假设你要进行n次卡尔曼滤波递推，那么observer_trajectory和measurements应该包含从初始状态和往后n个状态下的量测和坐标
+        纯方位容积卡尔曼滤波 CKF
 
         :param x0: 初始状态向量 [x, y, vx, vy]
         :param P0: 初始化协方差矩阵
@@ -579,7 +591,7 @@ class BearingOnlyCKF:
 
         # 添加过程噪声协方差
         # P_pred += (-np.outer(x_pred, x_pred) + self.Q)
-        P_pred += (-np.outer(x_pred, x_pred))# + self.Q)    # 0627，注释掉+ self.Q以后CKF能正常跟踪
+        P_pred += (-np.outer(x_pred, x_pred))  # 0627，注释掉+ self.Q以后CKF能正常跟踪
 
         # 上述计算与下面等价：
         # for i in range(len(propagated_points)):
@@ -607,79 +619,7 @@ class BearingOnlyCKF:
 
         # 添加测量噪声协方差
         P_zz += self.R
-
-        # 计算状态与测量的互相关矩阵
-        P_xz = np.zeros(self.n)
-        for i in range(len(propagated_points)):
-            #diff_x = propagated_points[i] - self.x
-            diff_x = propagated_points[i] - x_pred
-            diff_z = rad1rad2sub1(z_points[i], z_pred)
-            P_xz += self.weight * diff_x * diff_z[0]
-
-        # 计算卡尔曼增益
-        K = P_xz / P_zz
-
-        # 计算测量残差
-        z = self.measurements[self.current_step]  # 获取当前回合的量测方位角
-        z_residual = rad1rad2sub1(z, z_pred)
-
-        # X(k|k)
-        self.x = x_pred + K * z_residual[0]
-
-        # P(k|k)
-        self.P = P_pred - np.outer(K, K) * P_zz
-
-        self.current_step += 1
-
-
-    def step1(self):
-
-        # 生成立方点
-        cubature_points = self.generate_cubature_points()
-
-        # 传播立方点
-        propagated_points = np.array([self.state_transition(x, add_noise=False) for x in cubature_points])
-
-        # X(k|k-1)
-        x_pred = np.sum(propagated_points * self.weight, axis=0)
-
-        # P(k|k-1)
-        P_pred = np.zeros((self.n, self.n))
-        for i in range(len(propagated_points)):
-            # diff = propagated_points[i] - x_pred
-            # P_pred += self.weight * np.outer(diff, diff)
-
-            P_pred += self.weight * np.outer(propagated_points[i], propagated_points[i])
-
-        # 添加过程噪声协方差
-        P_pred += -np.outer(x_pred, x_pred) + self.Q
-
-        # 上述计算与下面等价：
-        # for i in range(len(propagated_points)):
-        #     diff = propagated_points[i] - x_pred
-        #     P_pred += self.weight * np.outer(diff, diff)
-        # P_pred += self.Q
-
-        # 通过测量函数变换传播点
-        z_points = np.array([self.measurement_function(x) for x in propagated_points])
-
-        # 计算预测测量均值
-        z_pred = np.sum(z_points * self.weight, axis=0)
-
-        # 计算预测测量协方差
-        # P_zz = 0
-        # for i in range(len(z_points)):
-        #     diff = z_points[i] - z_pred
-        #     diff[0] = self.normalize_angle(diff[0])
-        #     P_zz += self.weight * diff[0] ** 2
-
-        P_zz = 0
-        for i in range(len(z_points)):
-            diff = rad1rad2sub1(z_points[i], z_pred)
-            P_zz += self.weight * diff[0] ** 2 #有没有平方影响不大
-
-        # 添加测量噪声协方差
-        P_zz += self.R
+        # P_zz += np.rad2deg(self.R)
 
         # 计算状态与测量的互相关矩阵
         P_xz = np.zeros(self.n)

@@ -99,6 +99,8 @@ class Model:
                  maxt,
                  brg_noise_mean,
                  brg_noise_std,
+                 q_x,
+                 q_y
                  ):
         self.Sensor = Sensor
         self.Target = Target
@@ -107,7 +109,15 @@ class Model:
         self.max_simulation_time = maxt
         self.bearing_noise_mean = brg_noise_mean
         self.bearing_noise_std = brg_noise_std
+
         self.R = np.deg2rad((self.bearing_noise_std) ** 2)  # 测量噪声方差 (弧度)
+
+        self.Q = np.array([
+        [q_x * dt**3 / 3, 0,           q_x * dt**2 / 2, 0          ],
+        [0,           q_y * dt**3 / 3, 0,           q_y * dt**2 / 2],
+        [q_x * dt**2 / 2, 0,           q_x * dt,       0          ],
+        [0,           q_y * dt**2 / 2, 0,           q_y * dt       ]
+        ])
 
         self.steps = int(self.max_simulation_time / self.sample_time)
         self.times = np.arange(0, self.steps * self.sample_time + self.sample_time, self.sample_time)
@@ -127,7 +137,7 @@ class Model:
 
         self.crlb = np.zeros((self.steps + 1, 4))
 
-    def generate_target_trajectory(self):
+    def generate_target_trajectory(self, add_Q=False):
 
         F = np.array([
             [1, 0, self.sample_time, 0],
@@ -138,6 +148,14 @@ class Model:
 
         for k in range(1, self.steps + 1):
             self.target_states[k] = F @ self.target_states[k - 1]
+
+            if add_Q:
+                w_k = np.random.multivariate_normal(
+                    mean=np.zeros(4),  # 零均值向量
+                    cov=self.Q  # 协方差矩阵
+                )
+
+                self.target_states[k] += w_k
 
     def generate_sensor_trajectory_8(self):
         """
