@@ -1,4 +1,4 @@
-1.使用拓展卡尔曼滤波器（EKF）伪线性卡尔曼滤波器（PLKF）无味卡尔曼滤波器（UKF）和容积卡尔曼滤波器（PLKF）进行对匀速直线运动目标的纯方位目标运动分析（BOTMA），绘制蒙特卡洛试验的轨迹和状态变量的RMSE，CRLB（但不是很严谨）
+1.使用拓展卡尔曼滤波器（EKF）伪线性卡尔曼滤波器（PLKF）无味卡尔曼滤波器（UKF）和容积卡尔曼滤波器（CKF）进行对匀速直线运动目标的纯方位目标运动分析（BOTMA），绘制蒙特卡洛试验的轨迹和状态变量的RMSE，CRLB（但不是很严谨）
 
 2.基于正逆向滤波思想呈现了正逆向滤波和长短结合正逆向滤波，提高了四个滤波器的跟踪精度，参考为链接论文的第四章https://kns.cnki.net/kcms2/article/abstract?v=AA8hwJ51-CQYrsI92xyDS5jsUXptwdqKJ771bJy7N1fmiWz46EwMYyhoVLBhKBsMRMxbKAuwLcQFKlvmrTZomFsCezr6ktSE9KHNoipzybnn0RZEKNTwxIPoIt041pwsb7oDaKbho4la7eKm9P6jHtpC8rVgp5eMKXrZNQCBoCU=&uniplatform=NZKPT
 
